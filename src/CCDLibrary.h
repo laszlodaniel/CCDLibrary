@@ -31,7 +31,7 @@
     #define RX_PIN  PIND
     #define TX_PIN  PIND
 #else
-    #error "Arduino Mega / ATmega2560 microcontroller required!"
+    #error "Arduino Mega / ATmega2560 microcontroller is required!"
 #endif
 
 #define CCDUBRR               127  // Prescaler for 7812.5 baud speed, UBRR = (F_CPU / (16 * BAUDRATE)) - 1

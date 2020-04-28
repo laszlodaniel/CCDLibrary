@@ -26,6 +26,8 @@
 
 #include <CCDLibrary.h>
 
+//#define ChryslerCCDSCIScanner
+
 uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
 uint16_t writeInterval = 200; // ms
@@ -42,6 +44,16 @@ bool next = true;
 
 void setup()
 {
+    #if defined(ChryslerCCDSCIScanner)
+        TCCR1A = 0;                        // clear register
+        TCCR1B = 0;                        // clear register
+        TCNT1  = 0;                        // clear counter
+        DDRB   |= (1<<DDB5);               // set OC1A/PB5 as output
+        TCCR1A |= (1<<COM1A0);             // toggle OC1A on compare match
+        OCR1A  = 7;                        // top value for counter, toggle after counting to 8 (0->7) = 2 MHz interrupt ( = 16 MHz clock frequency / 8)
+        TCCR1B |= (1<<WGM12) | (1<<CS10);  // CTC mode, prescaler clock/1 (no prescaler)
+    #endif
+    
     Serial.begin(250000);
     CCD.begin();
 }

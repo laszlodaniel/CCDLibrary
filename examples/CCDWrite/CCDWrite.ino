@@ -26,7 +26,7 @@
 
 #include <CCDLibrary.h>
 
-//#define ChryslerCCDSCIScanner
+//#define ChryslerCCDSCIScanner // 1 MHz clock signal is necessary for the CDP68HC68S1 CCD-bus transceiver IC to work
 
 uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms

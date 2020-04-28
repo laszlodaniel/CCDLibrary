@@ -1,0 +1,17 @@
+#######################################
+# Data types (KEYWORD1)
+#######################################
+CCDLibrary	KEYWORD1
+CCD	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin	KEYWORD2
+available	KEYWORD2
+read	KEYWORD2
+write	KEYWORD2
+
+#######################################
+# Literals (LITERAL1)
+#######################################

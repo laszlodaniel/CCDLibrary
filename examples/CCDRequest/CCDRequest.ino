@@ -52,7 +52,7 @@ uint8_t messageIDbyte = 0;
 
 void setup()
 {
-    #if defined(ChryslerCCDSCIScanner)
+    #if defined (ChryslerCCDSCIScanner)
         TCCR1A = 0;                        // clear register
         TCCR1B = 0;                        // clear register
         TCNT1  = 0;                        // clear counter

@@ -276,7 +276,7 @@ void CCDLibrary::busIdleTimerInit()
 {
     // Calculate top value to count.
     // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
-    //    F_CPU = 16000000 MHz
+    //    F_CPU = 16000000 Hz
     //    BAUDRATE = 7812.5 bits per second
     //    PRESCALER = 1024
     // OCR3A (10 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1024) - 1 = 19

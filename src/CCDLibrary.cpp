@@ -29,7 +29,7 @@ CCDLibrary::CCDLibrary()
 
 void CCDLibrary::begin(uint8_t busIdleBits)
 {
-    _busIdle = true;
+    _busIdle = false;
     _busIdleBits = busIdleBits; // should be 10 according to CDP68HC68S1 datasheet...
     _lastMessageRead = true;
     _messageLength = 0;

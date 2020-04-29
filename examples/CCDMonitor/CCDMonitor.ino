@@ -20,25 +20,18 @@
 
 #include <CCDLibrary.h>
 
-//#define ChryslerCCDSCIScanner // 1 MHz clock signal is necessary for the CDP68HC68S1 CCD-bus transceiver IC to work
-
 uint8_t lastMessage[16];
 uint8_t lastMessageLength = 0;
 
 void setup()
 {
-    #if defined (ChryslerCCDSCIScanner)
-        TCCR1A = 0;                        // clear register
-        TCCR1B = 0;                        // clear register
-        TCNT1 = 0;                         // clear counter
-        DDRB |= (1<<DDB5);                 // set OC1A/PB5 as output
-        TCCR1A |= (1<<COM1A0);             // toggle OC1A on compare match
-        OCR1A = 7;                         // top value for counter, toggle after counting to 8 (0->7) = 2 MHz interrupt ( = 16 MHz clock frequency / 8)
-        TCCR1B |= (1<<WGM12) | (1<<CS10);  // CTC mode, prescaler clock/1 (no prescaler)
-    #endif
-    
     Serial.begin(250000);
-    CCD.begin();
+    CCD.begin(CLOCK_ON, IDLE_BITS_14);
+    // CLOCK_ON: enables 1 MHz clock signal on D11/PB5 pin for the CDP68HC68S1 CCD-bus transceiver IC. The ChryslerCCDSCIScanner hardware requires a clock signal.
+    // CLOCK_OFF: disables 1 MHz clock signal on D11/PB5 pin. The CCDBusTransceiver development board doesn't require a clock signal.
+    // IDLE_BITS_XX: sets the number of consecutive bits sensed as CCD-bus idle condition.
+    // IDLE_BITS_10: default idle bits according to the CDP68HC68S1 datasheet. It should be increased if messages are not coming through properly.
+    // IDLE_BITS_15: maximum masked value, use plain integers above this value.
 }
 
 void loop()

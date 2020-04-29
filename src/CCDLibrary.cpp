@@ -80,7 +80,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     // so they are turned off temporarily.
     UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
 
-    // Setup RX/TX pins manually
+    // Setup RX/TX pins manually.
     RX_DDR &= ~(1 << RX_P); // RX is input
     TX_DDR |= (1 << TX_P); // TX is output
     RX_PORT |= (1 << RX_P); // RX internal pullup resistor enabled
@@ -101,8 +101,8 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     if (currentRxBit) error = true; // it's supposed to be logic low
     _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
 
-    // Write 8 data bits beginning with the leftmost bit
-	for (uint8_t i = 0; i < 8; i++)
+    // Write 8 data bits beginning with the leftmost bit.
+    for (uint8_t i = 0; i < 8; i++)
     {
         if (!error) // if bus arbitration is lost, don't write anything, just read bits
         {
@@ -117,7 +117,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         _delay_us(64.0); // wait another 0.5 bit time to finish this bit
     }
     
-    // Write stop bit (1 bit)
+    // Write stop bit (1 bit).
     sbi(TX_PORT, TX_P); // write stop bit at TX pin (1 bit)
     _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
     currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)

@@ -36,6 +36,14 @@
  * 15: RAM/ROM/EEPROM value at the previously given 16-bit address (0000)
  * EA: RAM/ROM/EEPROM value at the next 16-bit address (0001)
  * 33: checksum (F2+20+22+15+EA & FF)
+ *
+ * Wiring (CCDBusTransceiver): 
+ * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
+ * Use the Arduino's +5V and GND pins to supply power to the development board. 
+ * Connect CCD+ and CCD- pins to the vehicle's diagnostic connector (OBD1 or OBD2). 
+ * Make sure to connect the additional GND pin to the diagnostic connector's ground pin. 
+ * Connect T_EN jumper if standalone operation is needed (without a compatible vehicle). 
+ * Disconnect T_EN jumper if CCD-bus is acting strange.
  */
 
 #include <CCDLibrary.h>
@@ -61,13 +69,15 @@ void setup()
 
 void loop()
 {
-    currentMillis = millis();
+    currentMillis = millis(); // check current time
     
-    if (currentMillis - lastMillis >= writeInterval)
+    if (currentMillis - lastMillis >= writeInterval) // check if writeInterval time has elapsed
     {
-        lastMillis = currentMillis;
-        uint8_t result = CCD.write(BCMROMValueRequest, 6);
-        if (result > 0)
+        lastMillis = currentMillis; // save current time
+        
+        uint8_t result = CCD.write(BCMROMValueRequest, 6); // write 6 bytes from the BCMROMValueRequest array on the CCD-bus
+        
+        if (result > 0) // check if error occured during message transmission (0 = OK)
         {
             switch (result)
             {
@@ -90,22 +100,21 @@ void loop()
         }
     }
 
-    if (CCD.available())
+    if (CCD.available()) // if there's a new unread message in the buffer
     {
-        lastMessageLength = CCD.read(lastMessage);
-        messageIDbyte = lastMessage[0];
+        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
+        messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
         
-        // Diagnostic request/response message filter
-        if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2))
+        if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
         {
             for (uint8_t i = 0; i < lastMessageLength; i++)
             {
-                if (lastMessage[i] < 16) Serial.print("0");
-                Serial.print(lastMessage[i], HEX);
-                Serial.print(" ");
+                if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
+                Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
+                Serial.print(" "); // insert whitespace between bytes
             }
             
-            Serial.println();
+            Serial.println(); // add new line
         }
     }
 }

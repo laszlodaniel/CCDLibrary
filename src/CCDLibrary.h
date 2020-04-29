@@ -47,6 +47,7 @@
 #define IDLE_BITS_13          13
 #define IDLE_BITS_14          14
 #define IDLE_BITS_15          15
+#define NO_CHECKSUM           0
 
 // Set (1), clear (0) and invert (1->0; 0->1) bit in a register or variable easily.
 #define sbi(reg, bit) reg |=  (1 << bit)
@@ -60,7 +61,7 @@ class CCDLibrary
         void begin(bool clockGenerator = 0, uint8_t busIdleBits = 14);
         bool available();
         uint8_t read(uint8_t *target);
-        uint8_t write(uint8_t *buffer, uint8_t bufferLength);
+        uint8_t write(uint8_t *buffer, uint8_t bufferLength, bool calculateChecksum = true);
         void handle_TIMER3_COMPA_vect();
         void handle_USART1_RX_vect();
         void handle_USART1_UDRE_vect();

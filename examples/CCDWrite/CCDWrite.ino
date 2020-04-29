@@ -22,6 +22,14 @@
  * from the CCD-bus. 
  * Multiple messages can be sent one after another by adding 
  * new byte arrays and changing the "msgCount" value accordingly.
+ *
+ * Wiring (CCDBusTransceiver): 
+ * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
+ * Use the Arduino's +5V and GND pins to supply power to the development board. 
+ * Connect CCD+ and CCD- pins to the vehicle's diagnostic connector (OBD1 or OBD2). 
+ * Make sure to connect the additional GND pin to the diagnostic connector's ground pin. 
+ * Connect T_EN jumper if standalone operation is needed (without a compatible vehicle). 
+ * Disconnect T_EN jumper if CCD-bus is acting strange.
  */
 
 #include <CCDLibrary.h>
@@ -30,8 +38,8 @@ uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
 uint16_t writeInterval = 200; // ms
 uint8_t msgCount = 2;
-uint8_t engineSpeed[4] = { 0xE4, 0x00, 0x00, 0xE4 };
-uint8_t vehicleSpeed[4] = { 0x24, 0x00, 0x00, 0x24 };
+uint8_t engineSpeed[4] = { 0xE4, 0x00, 0x00, 0x00 }; // after checksum calculation this reads E4 00 00 E4
+uint8_t vehicleSpeed[4] = { 0x24, 0x00, 0x00, 0x00 }; // after checksum calculation this reads 24 00 00 24
 uint8_t currentMessageTX[16];
 uint8_t currentMessageTXLength = 0;
 uint8_t lastMessage[16];
@@ -53,30 +61,26 @@ void setup()
 
 void loop()
 {
-    currentMillis = millis();
+    currentMillis = millis(); // check current time
     
-    if (currentMillis - lastMillis >= writeInterval)
+    if (currentMillis - lastMillis >= writeInterval) // check if writeInterval time has elapsed
     {
-        lastMillis = currentMillis;
+        lastMillis = currentMillis; // save current time
         
-        if (next)
+        if (next) // don't send the next message until echo of the current one is heard on the CCD-bus
         {
-            next = false;
-            
-            switch (counter)
+            switch (counter) // fill currentMessageTX array with the current message
             {
                 case 0:
                 {
                     for (uint8_t i = 0; i < 4; i++) currentMessageTX[i] = engineSpeed[i];
                     currentMessageTXLength = 4;
-                    CCD.write(currentMessageTX, currentMessageTXLength);
                     break;
                 }
                 case 1:
                 {
                     for (uint8_t i = 0; i < 4; i++) currentMessageTX[i] = vehicleSpeed[i];
                     currentMessageTXLength = 4;
-                    CCD.write(currentMessageTX, currentMessageTXLength);
                     break;
                 }
                 default:
@@ -84,29 +88,33 @@ void loop()
                     break;
                 }
             }
+
+            CCD.write(currentMessageTX, currentMessageTXLength); // automatic checksum calculation is performed
+            //CCD.write(currentMessageTX, currentMessageTXLength, NO_CHECKSUM); // message is sent as is, no checksum calculation is perfomed
             
-            counter++;
-            if (counter > (msgCount - 1)) counter = 0;
+            counter++; // another message next time
+            if (counter > (msgCount - 1)) counter = 0; // get back to the first message
+            next = false; // wait for echo
         }
     }
 
-    if (CCD.available())
+    if (CCD.available()) // if there's a new unread message in the buffer
     {
-        lastMessageLength = CCD.read(lastMessage);
+        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
         
         for (uint8_t i = 0; i < lastMessageLength; i++)
         {
             if (lastMessage[i] == currentMessageTX[i]) matchCount++;
-            if (lastMessage[i] < 16) Serial.print("0");
-            Serial.print(lastMessage[i], HEX);
-            Serial.print(" ");
+            if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
+            Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
+            Serial.print(" "); // insert whitespace between bytes
         }
 
-        if (matchCount == currentMessageTXLength)
+        if (matchCount >= (currentMessageTXLength - 1)) // don't count the last checksum byte
         {
-            matchCount = 0;
-            next = true;
+            matchCount = 0; // reset value
+            next = true; // echo accepted, send next message
         }
-        Serial.println();
+        Serial.println(); // add new line
     }
 }

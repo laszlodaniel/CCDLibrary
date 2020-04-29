@@ -18,6 +18,14 @@
  * Example: CCD-bus messages are displayed in the Arduino serial monitor 
  * that start with either the byte B2 or F2 (diagnostic request/response message). 
  * Any number and kind of bytes can be filtered.
+ *
+ * Wiring (CCDBusTransceiver): 
+ * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
+ * Use the Arduino's +5V and GND pins to supply power to the development board. 
+ * Connect CCD+ and CCD- pins to the vehicle's diagnostic connector (OBD1 or OBD2). 
+ * Make sure to connect the additional GND pin to the diagnostic connector's ground pin. 
+ * Connect T_EN jumper if standalone operation is needed (without a compatible vehicle). 
+ * Disconnect T_EN jumper if CCD-bus is acting strange.
  */
 
 #include <CCDLibrary.h>
@@ -39,22 +47,21 @@ void setup()
 
 void loop()
 {
-    if (CCD.available())
+    if (CCD.available()) // if there's a new unread message in the buffer
     {
-        lastMessageLength = CCD.read(lastMessage);
-        messageIDbyte = lastMessage[0];
+        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
+        messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
         
-        // Diagnostic request/response message filter.
-        if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2))
+        if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
         {
             for (uint8_t i = 0; i < lastMessageLength; i++)
             {
-                if (lastMessage[i] < 16) Serial.print("0");
-                Serial.print(lastMessage[i], HEX);
-                Serial.print(" ");
+                if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
+                Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
+                Serial.print(" "); // insert whitespace between bytes
             }
             
-            Serial.println();
+            Serial.println(); // add new line
         }
     }
 }

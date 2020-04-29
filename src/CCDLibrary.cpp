@@ -70,13 +70,21 @@ uint8_t CCDLibrary::read(uint8_t *target)
     return _messageLength;
 }
 
-uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
+uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength, bool calculateChecksum)
 {
     uint8_t ret = 0; // 0: ok, 1: data collision, 2: timeout, 
     
     // Copy message to transmit buffer.
     for (uint8_t i = 0; i < bufferLength; i++) _serialTxBuffer[i] = buffer[i];
-    
+	
+    // Calculate message checksum if needed
+    if (calculateChecksum)
+    {
+        uint8_t checksum = 0;
+        for (uint8_t i = 0; i < (bufferLength - 1); i++) checksum += buffer[i];
+        _serialTxBuffer[bufferLength - 1] = checksum;
+    }
+
     _serialTxLength = bufferLength; // save message length
 
     bool timeout = false;

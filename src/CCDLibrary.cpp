@@ -76,13 +76,13 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength, bool calculateC
     
     // Copy message to transmit buffer.
     for (uint8_t i = 0; i < bufferLength; i++) _serialTxBuffer[i] = buffer[i];
-	
-    // Calculate message checksum if needed
-    if (calculateChecksum)
+    
+    if (calculateChecksum) // calculate message checksum if needed
     {
         uint8_t checksum = 0;
-        for (uint8_t i = 0; i < (bufferLength - 1); i++) checksum += buffer[i];
-        _serialTxBuffer[bufferLength - 1] = checksum;
+        uint8_t checksumLocation = bufferLength - 1;
+        for (uint8_t i = 0; i < checksumLocation ; i++) checksum += buffer[i];
+        _serialTxBuffer[checksumLocation ] = checksum;
     }
 
     _serialTxLength = bufferLength; // save message length

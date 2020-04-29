@@ -82,7 +82,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength, bool calculateC
         uint8_t checksum = 0;
         uint8_t checksumLocation = bufferLength - 1;
         for (uint8_t i = 0; i < checksumLocation ; i++) checksum += buffer[i];
-        _serialTxBuffer[checksumLocation ] = checksum;
+        _serialTxBuffer[checksumLocation] = checksum;
     }
 
     _serialTxLength = bufferLength; // save message length

@@ -36,6 +36,8 @@
 uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
 uint16_t writeInterval = 200; // ms
+uint32_t messageSentMillis = 0;
+uint16_t messageTimeout = 1000; // ms
 uint8_t msgCount = 2;
 uint8_t engineSpeed[4] = { 0xE4, 0x00, 0x00, 0x00 }; // after checksum calculation this reads E4 00 00 E4
 uint8_t vehicleSpeed[4] = { 0x24, 0x00, 0x00, 0x00 }; // after checksum calculation this reads 24 00 00 24
@@ -61,6 +63,7 @@ void loop()
     if (currentMillis - lastMillis >= writeInterval) // check if writeInterval time has elapsed
     {
         lastMillis = currentMillis; // save current time
+        if ((currentMillis - messageSentMillis) > messageTimeout) next = true; // if previous message is lost somewhere then continue with the next one
         
         if (next) // don't send the next message until echo of the current one is heard on the CCD-bus
         {
@@ -85,13 +88,13 @@ void loop()
             }
             
             CCD.write(currentMessageTX, currentMessageTXLength);
-            
+            messageSentMillis = currentMillis;
             counter++; // another message next time
             if (counter > (msgCount - 1)) counter = 0; // after last message get back to the first one
             next = false; // wait for echo
         }
     }
-
+    
     if (CCD.available()) // if there's a new unread message in the buffer
     {
         lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable

@@ -45,7 +45,7 @@ void CCDLibrary::begin(bool clockGenerator, uint8_t busIdleBits, bool verifyRxCh
     _calculateTxChecksum = calculateTxChecksum;
     _lastMessageRead = true;
     _messageLength = 0;
-    uartInit(CCDUBRR);
+    serialInit(CCDUBRR);
     busIdleTimerInit();
     busIdleTimerStart();
 	
@@ -314,7 +314,7 @@ void CCDLibrary::handle_USART1_UDRE_vect()
     }
 }
 
-void CCDLibrary::uartInit(uint16_t ubrr)
+void CCDLibrary::serialInit(uint16_t ubrr)
 {
     // Reset buffer.
     ATOMIC_BLOCK(ATOMIC_FORCEON)

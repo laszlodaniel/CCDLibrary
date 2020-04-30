@@ -84,7 +84,7 @@ class CCDLibrary
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
         bool _lastMessageRead;
-        void uartInit(uint16_t ubrr);
+        void serialInit(uint16_t ubrr);
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();

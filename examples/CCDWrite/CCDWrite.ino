@@ -116,9 +116,5 @@ void loop()
             }
             Serial.println(); // add new line
         }
-        else // ignore invalid messages
-        {
-            next = true;
-        }
     }
 }

@@ -37,12 +37,8 @@ uint8_t messageIDbyte = 0;
 void setup()
 {
     Serial.begin(250000);
-    CCD.begin(CLOCK_ON, IDLE_BITS_14);
-    // CLOCK_ON: enables 1 MHz clock signal on D11/PB5 pin for the CDP68HC68S1 CCD-bus transceiver IC. The ChryslerCCDSCIScanner hardware requires a clock signal.
-    // CLOCK_OFF: disables 1 MHz clock signal on D11/PB5 pin. The CCDBusTransceiver development board doesn't require a clock signal.
-    // IDLE_BITS_XX: sets the number of consecutive bits sensed as CCD-bus idle condition.
-    // IDLE_BITS_10: default idle bits according to the CDP68HC68S1 datasheet. It should be increased if messages are not coming through properly.
-    // IDLE_BITS_15: maximum masked value, use plain integers above this value.
+    CCD.begin();
+    //CCD.begin(CLOCK_1MHZ_OFF, IDLE_BITS_14, DISABLE_RX_CHECKSUM, DISABLE_TX_CHECKSUM);
 }
 
 void loop()
@@ -50,18 +46,22 @@ void loop()
     if (CCD.available()) // if there's a new unread message in the buffer
     {
         lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
-        messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
         
-        if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
+        if (lastMessageLength > 0) // valid message length is always greater than 0
         {
-            for (uint8_t i = 0; i < lastMessageLength; i++)
-            {
-                if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
-                Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
-                Serial.print(" "); // insert whitespace between bytes
-            }
+            messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
             
-            Serial.println(); // add new line
+            if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
+            {
+                for (uint8_t i = 0; i < lastMessageLength; i++)
+                {
+                    if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
+                    Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
+                    Serial.print(" "); // insert whitespace between bytes
+                }
+                
+                Serial.println(); // add new line
+            }
         }
     }
 }

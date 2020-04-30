@@ -27,10 +27,22 @@ CCDLibrary::CCDLibrary()
     // Empty.
 }
 
-void CCDLibrary::begin(bool clockGenerator, uint8_t busIdleBits)
+void CCDLibrary::begin(bool clockGenerator, uint8_t busIdleBits, bool verifyRxChecksum, bool calculateTxChecksum)
 {
+    // CLOCK_1MHZ_ON: enables 1 MHz clock signal on D11/PB5 pin for the CDP68HC68S1 CCD-bus transceiver IC. The ChryslerCCDSCIScanner hardware requires a clock signal.
+    // CLOCK_1MHZ_OFF: disables 1 MHz clock signal on D11/PB5 pin. The CCDBusTransceiver development board doesn't require a clock signal.
+    // IDLE_BITS_XX: sets the number of consecutive bits sensed as CCD-bus idle condition.
+    // IDLE_BITS_10: default idle bits according to the CDP68HC68S1 datasheet. It should be increased if messages are not coming through properly.
+    // IDLE_BITS_15: maximum masked value, use plain integers above it.
+    // ENABLE_RX_CHECKSUM: verifies received messages against their last checksum byte and ignores them if broken.
+    // DISABLE_RX_CHECKSUM: accepts received messages without verification.
+    // ENABLE_TX_CHECKSUM: calculates the checksum of outgoing messages and overwrites the last byte with it.
+    // DISABLE_TX_CHECKSUM: sends messages as they are, no checksum calculation is perfomed.
+    
     _busIdle = false;
     _busIdleBits = busIdleBits;
+    _verifyRxChecksum = verifyRxChecksum;
+    _calculateTxChecksum = calculateTxChecksum;
     _lastMessageRead = true;
     _messageLength = 0;
     uartInit(CCDUBRR);
@@ -70,19 +82,19 @@ uint8_t CCDLibrary::read(uint8_t *target)
     return _messageLength;
 }
 
-uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength, bool calculateChecksum)
+uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
 {
     uint8_t ret = 0; // 0: ok, 1: data collision, 2: timeout
     
     // Copy message to transmit buffer.
     for (uint8_t i = 0; i < bufferLength; i++) _serialTxBuffer[i] = buffer[i];
     
-    if (calculateChecksum && (bufferLength > 1)) // calculate message checksum if needed, minimum message length is 2 bytes
+    if (_calculateTxChecksum && (bufferLength > 1)) // calculate message checksum if needed, minimum message length is 2 bytes
     {
         uint8_t checksum = 0;
         uint8_t checksumLocation = bufferLength - 1;
         for (uint8_t i = 0; i < checksumLocation ; i++) checksum += buffer[i];
-        _serialTxBuffer[checksumLocation] = checksum;
+        _serialTxBuffer[checksumLocation] = checksum; // overwrite last byte in the message with the correct checksum value
     }
 
     _serialTxLength = bufferLength; // save message length
@@ -208,13 +220,39 @@ void CCDLibrary::handle_TIMER3_COMPA_vect()
     // Check if there is something in the buffer.
     if (_serialRxBufferPos > 0)
     {
-        _messageLength = _serialRxBufferPos;
-        _serialRxBufferPos = 0;
+        if (_verifyRxChecksum && (_serialRxBufferPos > 1)) // verify checksum
+        {
+            uint8_t checksum = 0;
+            uint8_t checksumLocation = _serialRxBufferPos - 1;
+            for (uint8_t i = 0; i < checksumLocation ; i++) checksum += _serialRxBuffer[i];
         
-        // Copy bytes from serial receive buffer to message buffer.
-        for (uint8_t i = 0; i < _messageLength; i++) _message[i] = _serialRxBuffer[i];
-
-        _lastMessageRead = false; // clear flag
+            if (checksum == _serialRxBuffer[checksumLocation])
+            {
+                _messageLength = _serialRxBufferPos;
+                _serialRxBufferPos = 0;
+                
+                // Copy bytes from serial receive buffer to message buffer.
+                for (uint8_t i = 0; i < _messageLength; i++) _message[i] = _serialRxBuffer[i];
+                
+                _lastMessageRead = false; // clear flag
+            }
+            else
+            {
+                _messageLength = 0; // let invalid messages have zero length
+                _serialRxBufferPos = 0; // ignore this message and reset buffer
+                _lastMessageRead = false; // clear flag
+            }
+        }
+        else // checksum calculation is not applicable
+        {
+            _messageLength = _serialRxBufferPos;
+            _serialRxBufferPos = 0;
+            
+            // Copy bytes from serial receive buffer to message buffer.
+            for (uint8_t i = 0; i < _messageLength; i++) _message[i] = _serialRxBuffer[i];
+            
+            _lastMessageRead = false; // clear flag
+        }
     }
 }
 

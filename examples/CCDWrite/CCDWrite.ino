@@ -18,8 +18,7 @@
  * Example: two custom CCD-bus messages are repeatedly written 
  * on the CCD-bus while other messages (including these) are displayed 
  * in the Arduino serial monitor. 
- * Next message is sent when the previous one is echoed back 
- * from the CCD-bus. 
+ * Next message is sent when the previous one is echoed back from the CCD-bus. 
  * Multiple messages can be sent one after another by adding 
  * new byte arrays and changing the "msgCount" value accordingly.
  *
@@ -51,12 +50,8 @@ bool next = true;
 void setup()
 {
     Serial.begin(250000);
-    CCD.begin(CLOCK_ON, IDLE_BITS_14);
-    // CLOCK_ON: enables 1 MHz clock signal on D11/PB5 pin for the CDP68HC68S1 CCD-bus transceiver IC. The ChryslerCCDSCIScanner hardware requires a clock signal.
-    // CLOCK_OFF: disables 1 MHz clock signal on D11/PB5 pin. The CCDBusTransceiver development board doesn't require a clock signal.
-    // IDLE_BITS_XX: sets the number of consecutive bits sensed as CCD-bus idle condition.
-    // IDLE_BITS_10: default idle bits according to the CDP68HC68S1 datasheet. It should be increased if messages are not coming through properly.
-    // IDLE_BITS_15: maximum masked value, use plain integers above this value.
+    CCD.begin();
+    //CCD.begin(CLOCK_1MHZ_OFF, IDLE_BITS_14, DISABLE_RX_CHECKSUM, DISABLE_TX_CHECKSUM);
 }
 
 void loop()
@@ -88,12 +83,11 @@ void loop()
                     break;
                 }
             }
-
-            CCD.write(currentMessageTX, currentMessageTXLength); // automatic checksum calculation is performed
-            //CCD.write(currentMessageTX, currentMessageTXLength, NO_CHECKSUM); // message is sent as is, no checksum calculation is perfomed
+            
+            CCD.write(currentMessageTX, currentMessageTXLength);
             
             counter++; // another message next time
-            if (counter > (msgCount - 1)) counter = 0; // get back to the first message
+            if (counter > (msgCount - 1)) counter = 0; // after last message get back to the first one
             next = false; // wait for echo
         }
     }
@@ -101,20 +95,27 @@ void loop()
     if (CCD.available()) // if there's a new unread message in the buffer
     {
         lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
-        
-        for (uint8_t i = 0; i < lastMessageLength; i++)
-        {
-            if (lastMessage[i] == currentMessageTX[i]) matchCount++;
-            if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
-            Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
-            Serial.print(" "); // insert whitespace between bytes
-        }
 
-        if (matchCount >= (currentMessageTXLength - 1)) // don't count the last checksum byte
+        if (lastMessageLength > 0) // valid message length is always greater than 0
         {
-            matchCount = 0; // reset value
-            next = true; // echo accepted, send next message
+            for (uint8_t i = 0; i < lastMessageLength; i++)
+            {
+                if (lastMessage[i] == currentMessageTX[i]) matchCount++;
+                if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
+                Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
+                Serial.print(" "); // insert whitespace between bytes
+            }
+    
+            if (matchCount >= (currentMessageTXLength - 1)) // don't count the last checksum byte
+            {
+                matchCount = 0; // reset value
+                next = true; // echo accepted, send next message
+            }
+            Serial.println(); // add new line
         }
-        Serial.println(); // add new line
+        else // ignore invalid messages
+        {
+            next = true;
+        }
     }
 }

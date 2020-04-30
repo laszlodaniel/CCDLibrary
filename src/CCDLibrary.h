@@ -39,15 +39,18 @@
 #define UART_OVERRUN_ERROR    0x08 // overrun condition by UART
 #define UART_BUFFER_OVERFLOW  0x04 // receive buffer overflow
 #define UART_NO_DATA          0x02 // receive buffer is empty
-#define CLOCK_ON              1    // 1 MHz clock signal for the CDP68HC68S1 chip
-#define CLOCK_OFF             0
-#define IDLE_BITS_10          10   // to calculate CCD-bus idle condition
+#define CLOCK_1MHZ_ON         1    // 1 MHz clock signal for the CDP68HC68S1 chip
+#define CLOCK_1MHZ_OFF        0
+#define IDLE_BITS_10          10   // CCD-bus idle condition
 #define IDLE_BITS_11          11
 #define IDLE_BITS_12          12
 #define IDLE_BITS_13          13
 #define IDLE_BITS_14          14
 #define IDLE_BITS_15          15
-#define NO_CHECKSUM           0
+#define ENABLE_RX_CHECKSUM    1    // verify received message checksum
+#define DISABLE_RX_CHECKSUM   0
+#define ENABLE_TX_CHECKSUM    1    // calculate outgoing message checksum
+#define DISABLE_TX_CHECKSUM   0
 
 // Set (1), clear (0) and invert (1->0; 0->1) bit in a register or variable easily.
 #define sbi(reg, bit) reg |=  (1 << bit)
@@ -58,10 +61,10 @@ class CCDLibrary
 {
     public:
         CCDLibrary();
-        void begin(bool clockGenerator = 0, uint8_t busIdleBits = 14);
+        void begin(bool clockGenerator = 1, uint8_t busIdleBits = 14, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         bool available();
         uint8_t read(uint8_t *target);
-        uint8_t write(uint8_t *buffer, uint8_t bufferLength, bool calculateChecksum = true);
+        uint8_t write(uint8_t *buffer, uint8_t bufferLength);
         void handle_TIMER3_COMPA_vect();
         void handle_USART1_RX_vect();
         void handle_USART1_UDRE_vect();
@@ -78,6 +81,8 @@ class CCDLibrary
         volatile bool _busIdle;
         uint8_t _busIdleBits;
         uint8_t _calculatedOCRAValue;
+        bool _verifyRxChecksum;
+        bool _calculateTxChecksum;
         bool _lastMessageRead;
         void uartInit(uint16_t ubrr);
         void busIdleTimerInit();

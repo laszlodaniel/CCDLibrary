@@ -63,7 +63,7 @@ void loop()
     if (currentMillis - lastMillis >= writeInterval) // check if writeInterval time has elapsed
     {
         lastMillis = currentMillis; // save current time
-        if ((currentMillis - messageSentMillis) > messageTimeout) next = true; // if previous message is lost somewhere then continue with the next one
+        if ((currentMillis - messageSentMillis) >= messageTimeout) next = true; // if previous message is lost somewhere then continue with the next one
         
         if (next) // don't send the next message until echo of the current one is heard on the CCD-bus
         {

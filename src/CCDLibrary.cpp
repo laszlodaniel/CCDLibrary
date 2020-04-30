@@ -72,12 +72,12 @@ uint8_t CCDLibrary::read(uint8_t *target)
 
 uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength, bool calculateChecksum)
 {
-    uint8_t ret = 0; // 0: ok, 1: data collision, 2: timeout, 
+    uint8_t ret = 0; // 0: ok, 1: data collision, 2: timeout
     
     // Copy message to transmit buffer.
     for (uint8_t i = 0; i < bufferLength; i++) _serialTxBuffer[i] = buffer[i];
     
-    if (calculateChecksum) // calculate message checksum if needed
+    if (calculateChecksum && (bufferLength > 1)) // calculate message checksum if needed, minimum message length is 2 bytes
     {
         uint8_t checksum = 0;
         uint8_t checksumLocation = bufferLength - 1;

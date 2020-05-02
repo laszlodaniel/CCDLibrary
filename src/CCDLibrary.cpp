@@ -97,6 +97,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         _serialTxBuffer[checksumLocation] = checksum; // overwrite last byte in the message with the correct checksum value
     }
     
+    _serialTxBufferPos = 0; // reset buffer position
     _serialTxLength = bufferLength; // save message length
     
     bool timeout = false;
@@ -229,12 +230,11 @@ void CCDLibrary::handle_TIMER3_COMPA_vect()
             
             if (checksum == _serialRxBuffer[checksumLocation])
             {
+                // Copy bytes from serial receive buffer to message buffer.
+                for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
+                
                 _messageLength = _serialRxBufferPos;
                 _serialRxBufferPos = 0;
-                
-                // Copy bytes from serial receive buffer to message buffer.
-                for (uint8_t i = 0; i < _messageLength; i++) _message[i] = _serialRxBuffer[i];
-                
                 _lastMessageRead = false; // clear flag
             }
             else
@@ -246,12 +246,11 @@ void CCDLibrary::handle_TIMER3_COMPA_vect()
         }
         else // checksum calculation is not applicable
         {
+            // Copy bytes from serial receive buffer to message buffer.
+            for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
+            
             _messageLength = _serialRxBufferPos;
             _serialRxBufferPos = 0;
-            
-            // Copy bytes from serial receive buffer to message buffer.
-            for (uint8_t i = 0; i < _messageLength; i++) _message[i] = _serialRxBuffer[i];
-            
             _lastMessageRead = false; // clear flag
         }
     }
@@ -264,8 +263,8 @@ ISR(USART1_RX_vect)
 
 void CCDLibrary::handle_USART1_RX_vect()
 {
-    // Stop bus idle timer.
-    busIdleTimerStop();
+    // Start bus idle timer.
+    busIdleTimerStart();
     
     // Clear bus idle flag.
     _busIdle = false; // TODO: clear flag after first bit received, not after a whole byte is received
@@ -290,9 +289,6 @@ void CCDLibrary::handle_USART1_RX_vect()
     
     // Save last serial error.
     _lastSerialError = lastRxError;
-    
-    // Start bus idle timer.
-    busIdleTimerStart();
 }
 
 ISR(USART1_UDRE_vect)
@@ -310,7 +306,7 @@ void CCDLibrary::handle_USART1_UDRE_vect()
     else
     {
         UCSR1B &= ~(1 << UDRIE1); // Tx buffer empty, disable UDRE interrupt
-        _serialTxBufferPos = 0; // reset Tx buffer
+        _serialTxBufferPos = 0; // reset Tx buffer position
         _serialTxLength = 0; // reset length
     }
 }

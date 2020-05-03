@@ -34,13 +34,16 @@
     #error "Arduino Mega / ATmega2560 microcontroller is required!"
 #endif
 
-#define CCDUBRR               127  // prescaler for 7812.5 baud speed, UBRR = (F_CPU / (16 * BAUDRATE)) - 1
+#define CCD_UBRR              127  // prescaler for 7812.5 baud speed, UBRR = (F_CPU / (16 * BAUDRATE)) - 1
 #define UART_FRAME_ERROR      0x10 // framing error by UART
 #define UART_OVERRUN_ERROR    0x08 // overrun condition by UART
 #define UART_BUFFER_OVERFLOW  0x04 // receive buffer overflow
 #define UART_NO_DATA          0x02 // receive buffer is empty
-#define CLOCK_1MHZ_ON         1    // 1 MHz clock signal for the CDP68HC68S1 chip
-#define CLOCK_1MHZ_OFF        0
+#define IDLE_BITS_05          5
+#define IDLE_BITS_06          6
+#define IDLE_BITS_07          7
+#define IDLE_BITS_08          8
+#define IDLE_BITS_09          9
 #define IDLE_BITS_10          10   // CCD-bus idle condition
 #define IDLE_BITS_11          11
 #define IDLE_BITS_12          12
@@ -51,6 +54,10 @@
 #define DISABLE_RX_CHECKSUM   0
 #define ENABLE_TX_CHECKSUM    1    // calculate outgoing message checksum
 #define DISABLE_TX_CHECKSUM   0
+#define INTERRUPTS            1    // CDP68HC68S1 has two dedicated pins to signal CCD-bus condition
+#define IDLE_PIN              2    // Arduino Mega: INT4 pin (CCD-bus idle interrupt)
+#define CTRL_PIN              3    // Arduino Mega: INT5 pin (CCD-bus active byte (control) interrupt)
+#define NO_INTERRUPTS         0
 
 // Set (1), clear (0) and invert (1->0; 0->1) bit in a register or variable easily.
 #define sbi(reg, bit) reg |=  (1 << bit)
@@ -59,16 +66,18 @@
 
 class CCDLibrary
 {
-    public:
+	public:
         CCDLibrary();
-        void begin(bool clockGenerator = 1, uint8_t busIdleBits = 14, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
+        void begin(bool interruptsAvailable = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         bool available();
         uint8_t read(uint8_t *target);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
         void handle_TIMER3_COMPA_vect();
         void handle_USART1_RX_vect();
         void handle_USART1_UDRE_vect();
-    
+        void busIdleInterruptHandler();
+        void activeByteInterruptHandler();
+        
     private:
         volatile uint8_t _message[16];
         volatile uint8_t _messageLength;
@@ -80,14 +89,16 @@ class CCDLibrary
         volatile uint8_t _lastSerialError;
         volatile bool _busIdle;
         volatile bool _lastMessageRead;
+        bool _interruptsAvailable;
         uint8_t _busIdleBits;
-        uint8_t _calculatedOCRAValue;
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
+        uint8_t _calculatedOCRAValue;
         void serialInit(uint16_t ubrr);
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();
+		void processMessage();
 };
 
 extern CCDLibrary CCD;

@@ -52,8 +52,8 @@ bool next = true;
 void setup()
 {
     Serial.begin(250000);
-    CCD.begin();
-    //CCD.begin(CLOCK_1MHZ_OFF, IDLE_BITS_14, DISABLE_RX_CHECKSUM, DISABLE_TX_CHECKSUM);
+    CCD.begin(); // CDP68HC68S1
+    //CCD.begin(NO_INTERRUPTS, IDLE_BITS_14, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
 
 void loop()

@@ -51,10 +51,23 @@
 uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
 uint16_t writeInterval = 500; // ms
-uint8_t BCMROMValueRequest[6] = { 0xB2, 0x20, 0x22, 0x00, 0x00, 0xF4 };
+uint8_t BCMROMValueRequest[6] = { 0xB2, 0x20, 0x22, 0x00, 0x00, 0x00 }; // checksum intentionally set as zero
 uint8_t lastMessage[16];
 uint8_t lastMessageLength = 0;
 uint8_t messageIDbyte = 0;
+
+void calculateChecksum(uint8_t *buffer, uint16_t bufferLength)
+{
+    uint8_t checksumLocation = bufferLength - 1;
+    uint8_t checksum = 0;
+    
+    for (uint8_t i = 0 ; i < checksumLocation; i++)
+    {
+        checksum += buffer[i]; // add bytes together
+    }
+    
+    buffer[checksumLocation] = checksum; // overwrite last byte in the input array with the correct checksum
+}
 
 void setup()
 {
@@ -71,6 +84,7 @@ void loop()
     {
         lastMillis = currentMillis; // save current time
         
+        calculateChecksum(BCMROMValueRequest, 6); // calculate correct checksum for this message
         uint8_t result = CCD.write(BCMROMValueRequest, 6); // write 6 bytes from the BCMROMValueRequest array on the CCD-bus
         
         if (result > 0) // check if error occured during message transmission (0 = OK)

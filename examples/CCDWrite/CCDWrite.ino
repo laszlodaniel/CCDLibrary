@@ -20,7 +20,10 @@
  * in the Arduino serial monitor. 
  * Next message is sent when the previous one is echoed back from the CCD-bus. 
  * Multiple messages can be sent one after another by adding 
- * new byte arrays and changing the "msgCount" value accordingly.
+ * new byte arrays and changing the "msgCount" value accordingly. 
+ * Message checksum calculation can be done either in this sketch 
+ * using the calculateChecksum() function or hidden in the CCD.write() function. 
+ * Difference is how the message echo is handled.
  *
  * Wiring (CCDBusTransceiver): 
  * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
@@ -39,8 +42,8 @@ uint16_t writeInterval = 200; // ms
 uint32_t messageSentMillis = 0;
 uint16_t messageTimeout = 1000; // ms
 uint8_t msgCount = 2;
-uint8_t engineSpeed[4] = { 0xE4, 0x00, 0x00, 0x00 }; // after checksum calculation this reads E4 00 00 E4
-uint8_t vehicleSpeed[4] = { 0x24, 0x00, 0x00, 0x00 }; // after checksum calculation this reads 24 00 00 24
+uint8_t engineSpeed[4] = { 0xE4, 0x00, 0x00, 0x00 };
+uint8_t vehicleSpeed[4] = { 0x24, 0x00, 0x00, 0x00 };
 uint8_t currentMessageTX[16];
 uint8_t currentMessageTXLength = 0;
 uint8_t lastMessage[16];
@@ -48,6 +51,19 @@ uint8_t lastMessageLength = 0;
 uint8_t counter = 0;
 uint8_t matchCount = 0;
 bool next = true;
+
+void calculateChecksum(uint8_t *buffer, uint16_t bufferLength)
+{
+    uint8_t checksumLocation = bufferLength - 1;
+    uint8_t checksum = 0;
+    
+    for (uint8_t i = 0 ; i < checksumLocation; i++)
+    {
+        checksum += buffer[i]; // add bytes together
+    }
+    
+    buffer[checksumLocation] = checksum; // overwrite last byte in the input array with the correct checksum
+}
 
 void setup()
 {
@@ -87,10 +103,11 @@ void loop()
                 }
             }
             
-            CCD.write(currentMessageTX, currentMessageTXLength);
-            messageSentMillis = currentMillis;
-            counter++; // another message next time
-            if (counter > (msgCount - 1)) counter = 0; // after last message get back to the first one
+            calculateChecksum(currentMessageTX, currentMessageTXLength); // calculate correct checksum for this message
+            CCD.write(currentMessageTX, currentMessageTXLength); // send message on the CCD-bus
+            messageSentMillis = currentMillis; // save time for timeout
+            counter++; // send another message next time
+            if (counter > (msgCount - 1)) counter = 0; // after the last message get back to the first one
             next = false; // wait for echo
         }
     }
@@ -103,17 +120,18 @@ void loop()
         {
             for (uint8_t i = 0; i < lastMessageLength; i++)
             {
-                if (lastMessage[i] == currentMessageTX[i]) matchCount++;
+                if (lastMessage[i] == currentMessageTX[i]) matchCount++; // number of bytes matching with the bytes in the currentMessageTX array
                 if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
                 Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
                 Serial.print(" "); // insert whitespace between bytes
             }
-    
-            if (matchCount >= (currentMessageTXLength - 1)) // don't count the last checksum byte
+            
+            if (matchCount == currentMessageTXLength) // sent message is the same as the received message
             {
                 matchCount = 0; // reset value
                 next = true; // echo accepted, send next message
             }
+            
             Serial.println(); // add new line
         }
     }

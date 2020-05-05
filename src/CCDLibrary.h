@@ -66,7 +66,7 @@
 
 class CCDLibrary
 {
-	public:
+    public:
         CCDLibrary();
         void begin(bool interruptsAvailable = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         bool available();
@@ -98,7 +98,7 @@ class CCDLibrary
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();
-		void processMessage();
+        void processMessage();
 };
 
 extern CCDLibrary CCD;

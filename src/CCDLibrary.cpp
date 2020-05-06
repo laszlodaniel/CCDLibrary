@@ -46,7 +46,7 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
     //                 CTRL_PIN - Arduino pin connected to CDP68HC68S1's CTRL-pin.
     //   NO_INTERRUPTS: disables 1 MHz clock signal on D11/PB5 pin. The library handles bus-idle and arbitration detection based on timing and bit-manipulation.
     // busIdleBits:
-    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte).
+    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte). Maximum value = 32 bits.
     //   IDLE_BITS_10: default idle bits is 10 according to the CDP68HC68S1 datasheet. It should be changed if messages are not coming through properly.
     // verifyRxChecksum:
     //   ENABLE_RX_CHECKSUM: verifies received messages against their last checksum byte and ignores them if broken.
@@ -101,7 +101,6 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
         // Enable bus-idle timer.
         _busIdle = false; // start with bus-busy condition
         busIdleTimerInit();
-        busIdleTimerStart();
     }
 }
 
@@ -155,13 +154,11 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     // First transmitted byte (ID-byte) is special, it is used to decide bus arbitration when multiple 
     // modules are trying to send a message at the same time. 
     // During transmission every transmitted bit of the first byte needs to be inspected against the 
-    // simultaneously received bit in real time and block further bit transmission if data collision occurs. 
-    // This can happen if another module is sending an ID-byte value lower 
-    // than ours thus overwriting our 1 bits with its 0 bits. 
-    // A module sending the lowest ID-byte will win the bus arbitration procedure, and others must block further 
-    // data transmission.
-    
-    _busIdle = false; // clear flag
+    // simultaneously received bit and block further bit transmission if data collision occurs. 
+    // This can happen if another module is sending an ID-byte value lower than ours thus overwriting 
+    // our 1 bits with its 0 bits. 
+    // A module sending the lowest ID-byte will win the bus arbitration procedure, 
+    // and others must block further data transmission (mid-byte if necessary).
     
     if (_interruptsAvailable) // CDP68HC68S1 handles arbitration detection internally
     {
@@ -179,6 +176,9 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         // so it is turned off temporarily.
         UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
         
+        // Clear bus-idle flag
+        _busIdle = false;
+        
         // Setup RX/TX pins manually.
         RX_DDR &= ~(1 << RX_P); // RX is input
         TX_DDR |= (1 << TX_P); // TX is output
@@ -192,20 +192,18 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         bool currentTxBit = false;
         bool error = false;
         
-        // Start bit-banging RX/TX pins. Arbitration detection is done by checking if written bit is the same as the received bit.
+        // Start bit-banging RX/TX pins. 
+        // Arbitration detection is done by checking if written bit is the same as the received bit.
         // Check RX-pin once again to be sure it's idling.
         currentRxBit = (RX_PIN & (1 << RX_P));
         if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us
         
         // Write/read start bit (0 bit).
-        if (!error)
-        {
-            cbi(TX_PORT, TX_P);
-            _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
-            currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-            if (currentRxBit) error = true; // it's supposed to be logic low
-            _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
-        }
+        if (!error) cbi(TX_PORT, TX_P);
+        _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
+        currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
+        if (currentRxBit) error = true; // it's supposed to be logic low
+        _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
         
         // Write/read 8 data bits.
         for (uint8_t i = 0; i < 8; i++)
@@ -403,41 +401,39 @@ void CCDLibrary::serialInit(uint16_t ubrr)
 void CCDLibrary::busIdleTimerInit()
 {
     // Calculate top value to count.
-    // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
+    // OCR3A = ((F_CPU * (1 / BAUDRATE) * (BIT_DELAY - 1)) / PRESCALER) - 1
     //    F_CPU = 16000000 Hz
     //    BAUDRATE = 7812.5 bits per second
-    //    PRESCALER = 1024
-    // OCR3A (10 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1024) - 1 = 19
-    // OCR3A (11 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1024) - 1 = 21
-    // OCR3A (12 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1024) - 1 = 23
-    // OCR3A (13 bits delay) = ((16000000 * (1 / 7812.5) * 13) / 1024) - 1 = 25
-    // OCR3A (14 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1024) - 1 = 27
-    _calculatedOCRAValue = (uint8_t)((((float)F_CPU * (1.0 / 7812.5) * (float)_busIdleBits) / 1024.0) - 1.0);
+    //    PRESCALER = 1
+    // The stop bit at the end of every byte transmission counts as a bus-idle bit
+    // so (BIT_DELAY - 1) is considered.
+    // OCR3A (10 bits delay) = ((16000000 * (1 / 7812.5) * 9) / 1) - 1 = 18431
+    // OCR3A (11 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1) - 1 = 20479
+    // OCR3A (12 bits delay) = ((16000000 * (1 / 7812.5) * 11) / 1) - 1 = 22527
+    // OCR3A (13 bits delay) = ((16000000 * (1 / 7812.5) * 12) / 1) - 1 = 24575
+    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / 7812.5) * (float)(_busIdleBits - 1)) / 1.0) - 1.0);
     
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
-    TCCR3A = 0;
-    TCCR3B = 0;
-    TCNT3 = 0;
-    OCR3A = 0;
-    TIMSK3 |= (1 << OCIE3A); // output Compare Match A Interrupt Enable
+    TCCR3A = 0; // clear register
+    TCCR3B = 0; // clear register
+    TCNT3 = 0; // clear counter
+    OCR3A = _calculatedOCRAValue; // top value to count
+    TCCR3B |= (1 << WGM32) | (1 << CS30); // CTC, prescaler = 1, start timer
+    TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
     interrupts();
 }
 
 void CCDLibrary::busIdleTimerStart()
 {
-    TCCR3B |= (1 << WGM32); // CTC
-    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler: 1024
-    TCNT3 = 0;
-    OCR3A = _calculatedOCRAValue;
+    TCNT3 = 0; // clear counter
+    TCCR3B |= (1 << CS30); // prescaler = 1, start timer
 }
 
 void CCDLibrary::busIdleTimerStop()
 {
-    TCCR3A = 0;
-    TCCR3B = 0;
-    TCNT3 = 0;
-    OCR3A = 0;
+    TCCR3B &= ~(1 << CS30); // clear prescaler to stop timer
+    TCNT3 = 0; // clear counter
 }
 
 void CCDLibrary::busIdleInterruptHandler()
@@ -448,5 +444,5 @@ void CCDLibrary::busIdleInterruptHandler()
 
 void CCDLibrary::activeByteInterruptHandler()
 {
-    _busIdle = false;
+    _busIdle = false; // clear flag
 }

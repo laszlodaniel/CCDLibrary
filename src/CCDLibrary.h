@@ -93,7 +93,7 @@ class CCDLibrary
         uint8_t _busIdleBits;
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
-        uint8_t _calculatedOCRAValue;
+        uint16_t _calculatedOCRAValue;
         void serialInit(uint16_t ubrr);
         void busIdleTimerInit();
         void busIdleTimerStart();

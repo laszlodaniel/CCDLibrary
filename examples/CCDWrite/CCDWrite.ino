@@ -21,10 +21,9 @@
  * Next message is sent when the previous one is echoed back from the CCD-bus. 
  * Multiple messages can be sent one after another by adding 
  * new byte arrays and changing the "msgCount" value accordingly. 
- * Message checksum calculation can be done either in this sketch 
- * using the calculateChecksum() function or hidden in the CCD.write() function. 
- * Difference is how the message echo is handled.
- *
+ * The CCD.write() function automatically updates the source array with 
+ * the correct checksum.
+ * 
  * Wiring (CCDBusTransceiver): 
  * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
  * Use the Arduino's +5V and GND pins to supply power to the development board. 
@@ -52,24 +51,11 @@ uint8_t counter = 0;
 uint8_t matchCount = 0;
 bool next = true;
 
-void calculateChecksum(uint8_t *buffer, uint16_t bufferLength)
-{
-    uint8_t checksumLocation = bufferLength - 1;
-    uint8_t checksum = 0;
-    
-    for (uint8_t i = 0 ; i < checksumLocation; i++)
-    {
-        checksum += buffer[i]; // add bytes together
-    }
-    
-    buffer[checksumLocation] = checksum; // overwrite last byte in the input array with the correct checksum
-}
-
 void setup()
 {
     Serial.begin(250000);
     CCD.begin(); // CDP68HC68S1
-    //CCD.begin(NO_INTERRUPTS, IDLE_BITS_14, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+    //CCD.begin(NO_INTERRUPTS, IDLE_BITS_13, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
 
 void loop()
@@ -103,7 +89,6 @@ void loop()
                 }
             }
             
-            calculateChecksum(currentMessageTX, currentMessageTXLength); // calculate correct checksum for this message
             CCD.write(currentMessageTX, currentMessageTXLength); // send message on the CCD-bus
             messageSentMillis = currentMillis; // save time for timeout
             counter++; // send another message next time

@@ -46,7 +46,7 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
     //                 CTRL_PIN - Arduino pin connected to CDP68HC68S1's CTRL-pin.
     //   NO_INTERRUPTS: disables 1 MHz clock signal on D11/PB5 pin. The library handles bus-idle and arbitration detection based on timing and bit-manipulation.
     // busIdleBits:
-    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte). Maximum value = 32 bits.
+    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte).
     //   IDLE_BITS_10: default idle bits is 10 according to the CDP68HC68S1 datasheet. It should be changed if messages are not coming through properly.
     // verifyRxChecksum:
     //   ENABLE_RX_CHECKSUM: verifies received messages against their last checksum byte and ignores them if broken.
@@ -61,6 +61,7 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
     _lastMessageRead = true;
+    _busIdleBitCount = 0;
     serialInit(CCD_UBRR);
     
     if (_interruptsAvailable)
@@ -136,6 +137,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         uint8_t checksumLocation = bufferLength - 1;
         for (uint8_t i = 0; i < checksumLocation ; i++) checksum += buffer[i];
         _serialTxBuffer[checksumLocation] = checksum; // overwrite last byte in the message with the correct checksum value
+        buffer[checksumLocation] = checksum; // overwrite checksum in the source array too
     }
     
     _serialTxBufferPos = 0; // reset buffer position
@@ -319,9 +321,14 @@ ISR(TIMER3_COMPA_vect)
 
 void CCDLibrary::handle_TIMER3_COMPA_vect()
 {
-    busIdleTimerStop(); // stop bus idle timer
-    _busIdle = true; // set flag
-    processMessage(); // process received message
+    _busIdleBitCount++; // 1 bit time has elapsed (128 microseconds), increment counter
+    
+    if (_busIdleBitCount >= _busIdleBits)
+    {
+        busIdleTimerStop(); // stop bus idle timer
+        _busIdle = true; // set flag
+        processMessage(); // process received message, if any
+    }
 }
 
 ISR(USART1_RX_vect)
@@ -400,26 +407,21 @@ void CCDLibrary::serialInit(uint16_t ubrr)
 
 void CCDLibrary::busIdleTimerInit()
 {
-    // Calculate top value to count.
-    // OCR3A = ((F_CPU * (1 / BAUDRATE) * (BIT_DELAY - 1)) / PRESCALER) - 1
+    // Calculate top value to count 1 bit time (128 microseconds).
+    // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
     //    F_CPU = 16000000 Hz
     //    BAUDRATE = 7812.5 bits per second
-    //    PRESCALER = 1
-    // The stop bit at the end of every byte transmission counts as a bus-idle bit
-    // so (BIT_DELAY - 1) is considered.
-    // OCR3A (10 bits delay) = ((16000000 * (1 / 7812.5) * 9) / 1) - 1 = 18431
-    // OCR3A (11 bits delay) = ((16000000 * (1 / 7812.5) * 10) / 1) - 1 = 20479
-    // OCR3A (12 bits delay) = ((16000000 * (1 / 7812.5) * 11) / 1) - 1 = 22527
-    // OCR3A (13 bits delay) = ((16000000 * (1 / 7812.5) * 12) / 1) - 1 = 24575
-    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / 7812.5) * (float)(_busIdleBits - 1)) / 1.0) - 1.0);
+    //    PRESCALER = 1024
+    // OCR3A (1 bit delay) = ((16000000 * (1 / 7812.5) * 1) / 1024) - 1 = 1
+    //_calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / 7812.5) * (float)(_busIdleBits - 1)) / 1024.0) - 1.0);
     
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
     TCCR3A = 0; // clear register
     TCCR3B = 0; // clear register
     TCNT3 = 0; // clear counter
-    OCR3A = _calculatedOCRAValue; // top value to count
-    TCCR3B |= (1 << WGM32) | (1 << CS30); // CTC, prescaler = 1, start timer
+    OCR3A = 1; // top value to count
+    TCCR3B |= (1 << WGM32) | (1 << CS32) | (1 << CS30); // CTC, prescaler = 1024, start timer
     TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
     interrupts();
 }
@@ -427,19 +429,21 @@ void CCDLibrary::busIdleTimerInit()
 void CCDLibrary::busIdleTimerStart()
 {
     TCNT3 = 0; // clear counter
-    TCCR3B |= (1 << CS30); // prescaler = 1, start timer
+    _busIdleBitCount = 0; // reset bit counter
+    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler = 1024, start timer
 }
 
 void CCDLibrary::busIdleTimerStop()
 {
-    TCCR3B &= ~(1 << CS30); // clear prescaler to stop timer
+    TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
     TCNT3 = 0; // clear counter
+    _busIdleBitCount = 0; // reset bit counter
 }
 
 void CCDLibrary::busIdleInterruptHandler()
 {
     _busIdle = true; // set flag
-    processMessage(); // process received message
+    processMessage(); // process received message, if any
 }
 
 void CCDLibrary::activeByteInterruptHandler()

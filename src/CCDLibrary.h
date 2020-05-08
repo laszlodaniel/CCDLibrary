@@ -87,6 +87,7 @@ class CCDLibrary
         volatile uint8_t _serialTxBufferPos;
         volatile uint8_t _serialTxLength;
         volatile uint8_t _lastSerialError;
+        volatile uint8_t _busIdleBitCount;
         volatile bool _busIdle;
         volatile bool _lastMessageRead;
         bool _interruptsAvailable;
@@ -94,11 +95,11 @@ class CCDLibrary
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
         uint16_t _calculatedOCRAValue;
+        void processMessage();
         void serialInit(uint16_t ubrr);
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();
-        void processMessage();
 };
 
 extern CCDLibrary CCD;

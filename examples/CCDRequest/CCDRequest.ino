@@ -20,6 +20,8 @@
  * CCD-bus messages are displayed in the Arduino serial monitor 
  * and are filtered by these two ID bytes. 
  * With "writeInterval" the request speed can be changed.
+ * The CCD.write() function automatically updates the source array with 
+ * the correct checksum.
  *
  * Diagnostic request/response message format:
  *
@@ -56,24 +58,11 @@ uint8_t lastMessage[16];
 uint8_t lastMessageLength = 0;
 uint8_t messageIDbyte = 0;
 
-void calculateChecksum(uint8_t *buffer, uint16_t bufferLength)
-{
-    uint8_t checksumLocation = bufferLength - 1;
-    uint8_t checksum = 0;
-    
-    for (uint8_t i = 0 ; i < checksumLocation; i++)
-    {
-        checksum += buffer[i]; // add bytes together
-    }
-    
-    buffer[checksumLocation] = checksum; // overwrite last byte in the input array with the correct checksum
-}
-
 void setup()
 {
     Serial.begin(250000);
     CCD.begin(); // CDP68HC68S1
-    //CCD.begin(NO_INTERRUPTS, IDLE_BITS_14, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+    //CCD.begin(NO_INTERRUPTS, IDLE_BITS_13, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
 
 void loop()
@@ -84,7 +73,6 @@ void loop()
     {
         lastMillis = currentMillis; // save current time
         
-        calculateChecksum(BCMROMValueRequest, 6); // calculate correct checksum for this message
         uint8_t result = CCD.write(BCMROMValueRequest, 6); // write 6 bytes from the BCMROMValueRequest array on the CCD-bus
         
         if (result > 0) // check if error occured during message transmission (0 = OK)

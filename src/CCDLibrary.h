@@ -34,7 +34,7 @@
     #error "Arduino Mega / ATmega2560 microcontroller is required!"
 #endif
 
-#define CCD_UBRR              127  // prescaler for 7812.5 baud speed, UBRR = (F_CPU / (16 * BAUDRATE)) - 1
+#define CCD_DEFAULT_SPEED     7812.5 // default CCD-bus baudrate
 #define UART_FRAME_ERROR      0x10 // framing error by UART
 #define UART_OVERRUN_ERROR    0x08 // overrun condition by UART
 #define UART_BUFFER_OVERFLOW  0x04 // receive buffer overflow
@@ -68,7 +68,7 @@ class CCDLibrary
 {
     public:
         CCDLibrary();
-        void begin(bool interruptsAvailable = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
+        void begin(float baudrate = 7812.5, bool interruptsAvailable = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         bool available();
         uint8_t read(uint8_t *target);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
@@ -90,13 +90,14 @@ class CCDLibrary
         volatile uint8_t _busIdleBitCount;
         volatile bool _busIdle;
         volatile bool _lastMessageRead;
+        float _baudrate;
         bool _interruptsAvailable;
         uint8_t _busIdleBits;
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
         uint16_t _calculatedOCRAValue;
         void processMessage();
-        void serialInit(uint16_t ubrr);
+        void serialInit(float baudrate);
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();

@@ -37,8 +37,10 @@ static void isrActiveByte()
     CCD.activeByteInterruptHandler();
 }
 
-void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verifyRxChecksum, bool calculateTxChecksum)
+void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdleBits, bool verifyRxChecksum, bool calculateTxChecksum)
 {
+    // baudrate:
+    //   CCD_DEFAULT_SPEED: one and only speed for CCD-bus is 7812.5 baud
     // interruptsAvailable:
     //   INTERRUPTS: enables 1 MHz clock signal on D11/PB5 pin. Useful for the CDP68HC68S1 CCD-bus transceiver IC. 
     //               Bus-idle and arbitration detection is handled by this IC and signaled as external interrupts:
@@ -55,6 +57,7 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
     //   ENABLE_TX_CHECKSUM: calculates the checksum of outgoing messages and overwrites the last message byte with it.
     //   DISABLE_TX_CHECKSUM: sends messages as they are, no checksum calculation is perfomed.
     
+    _baudrate = baudrate;
     _interruptsAvailable = interruptsAvailable;
     _busIdleBits = busIdleBits;
     _verifyRxChecksum = verifyRxChecksum;
@@ -62,7 +65,8 @@ void CCDLibrary::begin(bool interruptsAvailable, uint8_t busIdleBits, bool verif
     _messageLength = 0;
     _lastMessageRead = true;
     _busIdleBitCount = 0;
-    serialInit(CCD_UBRR);
+    
+    serialInit(_baudrate);
     
     if (_interruptsAvailable)
     {
@@ -148,7 +152,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     
     while (!_busIdle && !timeout) // wait for bus idle condition or timeout (1 second)
     {
-        if (millis() - timeout_start > 1000) timeout = true;
+        if ((millis() - timeout_start) > 1000) timeout = true;
     }
     
     if (timeout) return 2;
@@ -383,7 +387,7 @@ void CCDLibrary::handle_USART1_UDRE_vect()
     }
 }
 
-void CCDLibrary::serialInit(uint16_t ubrr)
+void CCDLibrary::serialInit(float baudrate)
 {
     // Reset buffer.
     ATOMIC_BLOCK(ATOMIC_FORCEON)
@@ -395,6 +399,7 @@ void CCDLibrary::serialInit(uint16_t ubrr)
     }
     
     // Set baud rate.
+    uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
     UBRR1H = (ubrr >> 8) & 0x0F;
     UBRR1L = ubrr & 0xFF;
     
@@ -409,19 +414,18 @@ void CCDLibrary::busIdleTimerInit()
 {
     // Calculate top value to count 1 bit time (128 microseconds).
     // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
-    //    F_CPU = 16000000 Hz
+    //    F_CPU = 16000000 Hz for Arduino Mega
     //    BAUDRATE = 7812.5 bits per second
-    //    PRESCALER = 1024
-    // OCR3A (1 bit delay) = ((16000000 * (1 / 7812.5) * 1) / 1024) - 1 = 1
-    //_calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / 7812.5) * (float)(_busIdleBits - 1)) / 1024.0) - 1.0);
+    //    PRESCALER = 1
+    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * 1.0) / 1.0) - 1.0);
     
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
     TCCR3A = 0; // clear register
     TCCR3B = 0; // clear register
     TCNT3 = 0; // clear counter
-    OCR3A = 1; // top value to count
-    TCCR3B |= (1 << WGM32) | (1 << CS32) | (1 << CS30); // CTC, prescaler = 1024, start timer
+    OCR3A = _calculatedOCRAValue; // top value to count
+    TCCR3B |= (1 << WGM32) | (1 << CS30); // CTC, prescaler = 1, start timer
     TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
     interrupts();
 }
@@ -430,12 +434,12 @@ void CCDLibrary::busIdleTimerStart()
 {
     TCNT3 = 0; // clear counter
     _busIdleBitCount = 0; // reset bit counter
-    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler = 1024, start timer
+    TCCR3B |= (1 << CS30); // prescaler = 1, start timer
 }
 
 void CCDLibrary::busIdleTimerStop()
 {
-    TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
+    TCCR3B &= ~(1 << CS30); // clear prescaler to stop timer
     TCNT3 = 0; // clear counter
     _busIdleBitCount = 0; // reset bit counter
 }

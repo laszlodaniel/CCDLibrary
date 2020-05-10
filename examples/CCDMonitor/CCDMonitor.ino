@@ -19,6 +19,7 @@
  *
  * Wiring (CCDBusTransceiver): 
  * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
+ * Additionally connect INT5 (Pin 3) to RX1 with a jumper wire. 
  * Use the Arduino's +5V and GND pins to supply power to the development board. 
  * Connect CCD+ and CCD- pins to the vehicle's diagnostic connector (OBD1 or OBD2). 
  * Make sure to connect the additional GND pin to the diagnostic connector's ground pin. 
@@ -35,7 +36,7 @@ void setup()
 {
     Serial.begin(250000);
     CCD.begin(); // CDP68HC68S1
-    //CCD.begin(CCD_DEFAULT_SPEED, NO_INTERRUPTS, IDLE_BITS_13, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+    //CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
 
 void loop()

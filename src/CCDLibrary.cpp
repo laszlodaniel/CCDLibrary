@@ -37,16 +37,16 @@ static void isrActiveByte()
     CCD.activeByteInterruptHandler();
 }
 
-void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdleBits, bool verifyRxChecksum, bool calculateTxChecksum)
+void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdleBits, bool verifyRxChecksum, bool calculateTxChecksum)
 {
     // baudrate:
     //   CCD_DEFAULT_SPEED: one and only speed for CCD-bus is 7812.5 baud
-    // interruptsAvailable:
-    //   INTERRUPTS: enables 1 MHz clock signal on D11/PB5 pin. Useful for the CDP68HC68S1 CCD-bus transceiver IC. 
-    //               Bus-idle and arbitration detection is handled by this IC and signaled as external interrupts:
-    //                 IDLE_PIN - Arduino pin connected to CDP68HC68S1's IDLE-pin.
-    //                 CTRL_PIN - Arduino pin connected to CDP68HC68S1's CTRL-pin.
-    //   NO_INTERRUPTS: disables 1 MHz clock signal on D11/PB5 pin. The library handles bus-idle and arbitration detection based on timing and bit-manipulation.
+    // dedicatedTransceiver:
+    //   CDP68HC68S1: enables 1 MHz clock signal on D11/PB5 pin for the CDP68HC68S1 CCD-bus transceiver IC. 
+    //                Bus-idle and arbitration detection is handled by this IC and signaled as external interrupts:
+    //                  IDLE_PIN - Arduino pin connected to CDP68HC68S1's IDLE-pin.
+    //                  CTRL_PIN - Arduino pin connected to CDP68HC68S1's CTRL-pin.
+    //   CUSTOM_TRANSCEIVER: disables 1 MHz clock signal on D11/PB5 pin. The library handles bus-idle and arbitration detection based on timing and bit-manipulation.
     // busIdleBits:
     //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte).
     //   IDLE_BITS_10: default idle bits is 10 according to the CDP68HC68S1 datasheet. It should be changed if messages are not coming through properly.
@@ -58,17 +58,16 @@ void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdle
     //   DISABLE_TX_CHECKSUM: sends messages as they are, no checksum calculation is perfomed.
     
     _baudrate = baudrate;
-    _interruptsAvailable = interruptsAvailable;
+    _dedicatedTransceiver = dedicatedTransceiver;
     _busIdleBits = busIdleBits;
     _verifyRxChecksum = verifyRxChecksum;
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
     _lastMessageRead = true;
-    _busIdleBitCount = 0;
     
     serialInit(_baudrate);
     
-    if (_interruptsAvailable)
+    if (_dedicatedTransceiver)
     {
         // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
         noInterrupts();
@@ -78,7 +77,7 @@ void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdle
         DDRB |= (1 << DDB5);                   // set OC1A/PB5 as output
         TCCR1A |= (1 << COM1A0);               // toggle OC1A on compare match
         OCR1A = 7;                             // top value for counter, toggle after counting to 8 (0->7) = 2 MHz interrupt ( = 16 MHz clock frequency / 8)
-        TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler clock/1 (no prescaler)
+        TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1
         
         // Setup external interrupts for bus-idle and active byte detection.
         pinMode(IDLE_PIN, INPUT_PULLUP);
@@ -87,6 +86,7 @@ void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdle
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         interrupts();
         
+        busIdleTimerStop(); // stop timer that is initialized in the custom transceiver section
         _busIdle = true; // start with bus-idle condition
     }
     else
@@ -98,9 +98,11 @@ void CCDLibrary::begin(float baudrate, bool interruptsAvailable, uint8_t busIdle
         TCNT1  = 0;
         OCR1A  = 0;
         
-        // Detach external interrupts if previously assigned.
+        // Setup external interrupt for active byte detection.
+        // Detach bus-idle interrupt and let the active byte interrupt do its task.
+        pinMode(CTRL_PIN, INPUT_PULLUP);
+        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN));
         interrupts();
         
         // Enable bus-idle timer.
@@ -166,7 +168,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     // A module sending the lowest ID-byte will win the bus arbitration procedure, 
     // and others must block further data transmission (mid-byte if necessary).
     
-    if (_interruptsAvailable) // CDP68HC68S1 handles arbitration detection internally
+    if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
         // Enable UDRE interrupt to begin message transmission. That's it.
         // Hopefully the message is being reflected on the CCD-bus, but if not then
@@ -325,14 +327,9 @@ ISR(TIMER3_COMPA_vect)
 
 void CCDLibrary::handle_TIMER3_COMPA_vect()
 {
-    _busIdleBitCount++; // 1 bit time has elapsed (128 microseconds), increment counter
-    
-    if (_busIdleBitCount >= _busIdleBits)
-    {
-        busIdleTimerStop(); // stop bus idle timer
-        _busIdle = true; // set flag
-        processMessage(); // process received message, if any
-    }
+    busIdleTimerStop(); // stop bus idle timer
+    _busIdle = true; // set flag
+    processMessage(); // process received message, if any
 }
 
 ISR(USART1_RX_vect)
@@ -342,9 +339,6 @@ ISR(USART1_RX_vect)
 
 void CCDLibrary::handle_USART1_RX_vect()
 {
-    if (!_interruptsAvailable) busIdleTimerStart(); // start bus idle timer immediately after the stop bit
-    _busIdle = false; // TODO: clear flag after first bit received, not after a whole byte is received
-    
     // Read UART status register and UART data register.
     uint8_t usr  = UCSR1A;
     uint8_t data = UDR1;
@@ -365,6 +359,9 @@ void CCDLibrary::handle_USART1_RX_vect()
     
     // Save last serial error.
     _lastSerialError = lastRxError;
+    
+    // Re-enable active byte interrupt
+    attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 }
 
 ISR(USART1_UDRE_vect)
@@ -412,12 +409,12 @@ void CCDLibrary::serialInit(float baudrate)
 
 void CCDLibrary::busIdleTimerInit()
 {
-    // Calculate top value to count 1 bit time (128 microseconds).
+    // Calculate top value to count beginning from the UART frame start bit until bus-idle condition (10 bit UART frame + _busIdleBits).
     // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
     //    F_CPU = 16000000 Hz for Arduino Mega
     //    BAUDRATE = 7812.5 bits per second
-    //    PRESCALER = 1
-    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * 1.0) / 1.0) - 1.0);
+    //    PRESCALER = 1024
+    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
     
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
@@ -425,7 +422,7 @@ void CCDLibrary::busIdleTimerInit()
     TCCR3B = 0; // clear register
     TCNT3 = 0; // clear counter
     OCR3A = _calculatedOCRAValue; // top value to count
-    TCCR3B |= (1 << WGM32) | (1 << CS30); // CTC, prescaler = 1, start timer
+    TCCR3B |= (1 << WGM32) | (1 << CS32) | (1 << CS30); // CTC mode, prescaler = 1024, start timer
     TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
     interrupts();
 }
@@ -433,15 +430,13 @@ void CCDLibrary::busIdleTimerInit()
 void CCDLibrary::busIdleTimerStart()
 {
     TCNT3 = 0; // clear counter
-    _busIdleBitCount = 0; // reset bit counter
-    TCCR3B |= (1 << CS30); // prescaler = 1, start timer
+    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler = 1024, start timer
 }
 
 void CCDLibrary::busIdleTimerStop()
 {
-    TCCR3B &= ~(1 << CS30); // clear prescaler to stop timer
+    TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
     TCNT3 = 0; // clear counter
-    _busIdleBitCount = 0; // reset bit counter
 }
 
 void CCDLibrary::busIdleInterruptHandler()
@@ -452,5 +447,10 @@ void CCDLibrary::busIdleInterruptHandler()
 
 void CCDLibrary::activeByteInterruptHandler()
 {
+    if (!_dedicatedTransceiver)
+    {
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next bus-idle condition
+        busIdleTimerStart(); // start bus-idle timer
+    }
     _busIdle = false; // clear flag
 }

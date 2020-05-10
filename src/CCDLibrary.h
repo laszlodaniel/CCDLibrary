@@ -54,10 +54,10 @@
 #define DISABLE_RX_CHECKSUM   0
 #define ENABLE_TX_CHECKSUM    1    // calculate outgoing message checksum
 #define DISABLE_TX_CHECKSUM   0
-#define INTERRUPTS            1    // CDP68HC68S1 has two dedicated pins to signal CCD-bus condition
+#define CDP68HC68S1           1    // CDP68HC68S1 has two dedicated pins to signal CCD-bus condition
 #define IDLE_PIN              2    // Arduino Mega: INT4 pin (CCD-bus idle interrupt)
 #define CTRL_PIN              3    // Arduino Mega: INT5 pin (CCD-bus active byte (control) interrupt)
-#define NO_INTERRUPTS         0
+#define CUSTOM_TRANSCEIVER    0
 
 // Set (1), clear (0) and invert (1->0; 0->1) bit in a register or variable easily.
 #define sbi(reg, bit) reg |=  (1 << bit)
@@ -68,7 +68,7 @@ class CCDLibrary
 {
     public:
         CCDLibrary();
-        void begin(float baudrate = 7812.5, bool interruptsAvailable = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
+        void begin(float baudrate = 7812.5, bool dedicatedTransceiver = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         bool available();
         uint8_t read(uint8_t *target);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
@@ -87,11 +87,10 @@ class CCDLibrary
         volatile uint8_t _serialTxBufferPos;
         volatile uint8_t _serialTxLength;
         volatile uint8_t _lastSerialError;
-        volatile uint8_t _busIdleBitCount;
         volatile bool _busIdle;
         volatile bool _lastMessageRead;
         float _baudrate;
-        bool _interruptsAvailable;
+        bool _dedicatedTransceiver;
         uint8_t _busIdleBits;
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;

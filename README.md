@@ -11,7 +11,7 @@ Example using the CDP68HC68S1 CCD-bus transceiver IC:
 
 ![IMG_20200510_152453_02.jpg](https://chryslerccdsci.files.wordpress.com/2020/05/img_20200510_152453_02.jpg)
 
-![CCDLibrary_CCDWrite_example_01.png](https://chryslerccdsci.files.wordpress.com/2020/05/ccdlibrary_ccdwrite_example_01.png)
+![CCDLibrary_CCDWrite_example_02.png](https://chryslerccdsci.files.wordpress.com/2020/05/ccdlibrary_ccdwrite_example_02.png)
 
 Example using the CCDBusTransceiver development board:
 

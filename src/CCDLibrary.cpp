@@ -237,9 +237,6 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         if (!currentRxBit) error = true; // error: it's supposed to be logic high
         _delay_us(64.0); // wait another 0.5 bit time to finish stop bit signaling
         
-        // Start bus idle timer.
-        busIdleTimerStart();
-        
         // Save ID byte
         _serialRxBuffer[0] = IDbyteRX;
         _serialRxBufferPos = 1;

@@ -171,9 +171,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
         // Enable UDRE interrupt to begin message transmission. That's it.
-        // Hopefully the message is being reflected on the CCD-bus, but if not then
-        // the CDP68HC68S1 chip disabled its transmitter automatically due to data collision.
-        // At that point in time whatever data is thrown at it is just ignored and never reaches the CCD-bus.
+        // The CDP68HC68S1 chip takes care of everything.
         UCSR1B |= (1 << UDRIE1);
         
         return 0;
@@ -241,16 +239,9 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         _serialRxBuffer[0] = IDbyteRX;
         _serialRxBufferPos = 1;
         
-        if (!error && (IDbyteRX == IDbyteTX))
+        if (!error && (IDbyteRX == IDbyteTX)) // CCD-bus arbitration won
         {
-            // If every bit in the ID-byte is echoed back correctly then we won bus arbitration
-            // and we can continue to send the rest of the message bytes.
-            
-            // Save the ID-byte manually in the serial receive buffer.
-            _serialRxBuffer[0] = IDbyteRX;
-            _serialRxBufferPos = 1;
-            
-            // Continue automatic transmission at the second byte.
+            // Send second byte next.
             _serialTxBufferPos = 1;
             
             // Re-enable UART receiver and transmitter and receive complete interrupt.
@@ -261,13 +252,8 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             
             return 0;
         }
-        else
+        else // CCD-bus arbitration lost somewhere along the way
         {
-            // Bus arbitration is lost somewhere along the way, this is an unexpected ID-byte. 
-            // Save it and continue receiving message bytes.
-            _serialRxBuffer[0] = IDbyteRX;
-            _serialRxBufferPos = 1;
-            
             // Reset transmit buffer.
             _serialTxBufferPos = 0;
             _serialTxLength = 0;
@@ -446,7 +432,7 @@ void CCDLibrary::activeByteInterruptHandler()
 {
     if (!_dedicatedTransceiver)
     {
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next bus-idle condition
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next message byte is received
         busIdleTimerStart(); // start bus-idle timer
     }
     _busIdle = false; // clear flag

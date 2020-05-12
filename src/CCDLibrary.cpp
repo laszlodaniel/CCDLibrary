@@ -48,7 +48,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     //                  CTRL_PIN - Arduino pin connected to CDP68HC68S1's CTRL-pin.
     //   CUSTOM_TRANSCEIVER: disables 1 MHz clock signal on D11/PB5 pin. The library handles bus-idle and arbitration detection based on timing and bit-manipulation.
     // busIdleBits:
-    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition (including stop bit of the last message byte).
+    //   IDLE_BITS_XX: sets the number of consecutive 1-bits sensed as CCD-bus idle condition.
     //   IDLE_BITS_10: default idle bits is 10 according to the CDP68HC68S1 datasheet. It should be changed if messages are not coming through properly.
     // verifyRxChecksum:
     //   ENABLE_RX_CHECKSUM: verifies received messages against their last checksum byte and ignores them if broken.
@@ -70,13 +70,22 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     if (_dedicatedTransceiver)
     {
         // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
+        // OCR1A = (F_CPU / (2 * CLOCK * PRESCALER)) - 1
+        // Clock frequency is multiplied by 2 because the raw signal needs to
+        // oscillate two times for a single clock period. So in reality the timer
+        // toggles the output pin at 2 MHz which results in a 1 MHz clock signal.
+        //    F_CPU = 16000000 Hz for Arduino Mega
+        //    CLOCK = 1000000 Hz
+        //    PRESCALER = 1
+        _calculatedOCR1AValue = (uint16_t)(((float)F_CPU / (2.0 * 1000000.0 * 1.0)) - 1.0);
+        
         noInterrupts();
         TCCR1A = 0;                            // clear register
         TCCR1B = 0;                            // clear register
         TCNT1 = 0;                             // clear counter
         DDRB |= (1 << DDB5);                   // set OC1A/PB5 as output
         TCCR1A |= (1 << COM1A0);               // toggle OC1A on compare match
-        OCR1A = 7;                             // top value for counter, toggle after counting to 8 (0->7) = 2 MHz interrupt ( = 16 MHz clock frequency / 8)
+        OCR1A = _calculatedOCR1AValue;         // top value for counter (16 MHz: 7; 8 MHz: 3)
         TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1
         
         // Setup external interrupts for bus-idle and active byte detection.
@@ -392,19 +401,20 @@ void CCDLibrary::serialInit(float baudrate)
 
 void CCDLibrary::busIdleTimerInit()
 {
-    // Calculate top value to count beginning from the UART frame start bit until bus-idle condition (10 bit UART frame + _busIdleBits).
+    // Calculate top value to count beginning from the UART frame start bit until bus-idle condition.
     // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
     //    F_CPU = 16000000 Hz for Arduino Mega
     //    BAUDRATE = 7812.5 bits per second
+    //    BIT_DELAY = 10 UART frame bit + _busIdleBits
     //    PRESCALER = 1024
-    _calculatedOCRAValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
+    _calculatedOCR3AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
     
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
     TCCR3A = 0; // clear register
     TCCR3B = 0; // clear register
     TCNT3 = 0; // clear counter
-    OCR3A = _calculatedOCRAValue; // top value to count
+    OCR3A = _calculatedOCR3AValue; // top value to count
     TCCR3B |= (1 << WGM32) | (1 << CS32) | (1 << CS30); // CTC mode, prescaler = 1024, start timer
     TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
     interrupts();

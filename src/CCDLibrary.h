@@ -94,7 +94,8 @@ class CCDLibrary
         uint8_t _busIdleBits;
         bool _verifyRxChecksum;
         bool _calculateTxChecksum;
-        uint16_t _calculatedOCRAValue;
+        uint16_t _calculatedOCR1AValue;
+        uint16_t _calculatedOCR3AValue;
         void processMessage();
         void serialInit(float baudrate);
         void busIdleTimerInit();

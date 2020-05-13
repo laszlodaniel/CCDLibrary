@@ -353,7 +353,7 @@ void CCDLibrary::handle_USART1_RX_vect()
     _lastSerialError = lastRxError;
     
     // Re-enable active byte interrupt
-    attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 }
 
 ISR(USART1_UDRE_vect)

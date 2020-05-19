@@ -228,7 +228,11 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         if (!error) cbi(TX_PORT, TX_P);
         _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
         currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-        if (currentRxBit) error = true; // it's supposed to be logic low, bus arbitration lost
+        if (currentRxBit)
+        {
+            error = true; // it's supposed to be logic low, bus arbitration lost
+            sbi(TX_PORT, TX_P); // in case of losing bus arbitration keep the TX-pin is non-destructive state (1-bit)
+        }
         _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
         
         // Write/read 8 data bits.
@@ -240,6 +244,10 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
                 currentTxBit = IDbyteTX & (1 << i);
                 if (currentTxBit) sbi(TX_PORT, TX_P);
                 else cbi(TX_PORT, TX_P);
+            }
+            else
+            {
+                sbi(TX_PORT, TX_P); // in case of losing bus arbitration keep the TX-pin is non-destructive state (1-bit)
             }
             
             _delay_us(64.0); // wait 0.5 bit time

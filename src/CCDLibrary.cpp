@@ -217,7 +217,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         // the while-loop.
         // Not honoring this delay is called "early arbitration" and abusing it is considered as a dick move 
         // against slower modules that try to send their own messages and failing every time.
-        _delay_us(256.0);
+        _delay_us(251.0); // approximately 5 microseconds elapses until we end up here so don't count that
         
         // Check RX-pin once again to be sure it's idling.
         currentRxBit = (RX_PIN & (1 << RX_P));

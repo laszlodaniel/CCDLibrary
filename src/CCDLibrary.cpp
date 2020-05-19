@@ -209,18 +209,30 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         
         // Start bit-banging RX/TX pins. 
         // Arbitration detection is done by checking if written bit is the same as the received bit.
+        // But first we have to wait 2 bit time (256 microseconds) for synchronisation.
+        // The hardware UART has this delay "built-in" because it takes time to load a byte into the transmit buffer.
+        // Since we are bit-banging there is no buffer loading, so we have to comply with the CCD-bus standards 
+        // and insert a 256 microseconds delay between bus-idle contition and the start bit of the ID byte.
+        // This value may need to be reduced or removed because there are time-consuming instructions following 
+        // the while-loop.
+        // Not honoring this delay is called "early arbitration" and abusing it is considered as a dick move 
+        // against slower modules that try to send their own messages and failing every time.
+        _delay_us(256.0);
+        
         // Check RX-pin once again to be sure it's idling.
         currentRxBit = (RX_PIN & (1 << RX_P));
-        if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us
+        if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us, bus arbitration lost
         
         // Write/read start bit (0 bit).
+        // The following is called start bit arbitration.
         if (!error) cbi(TX_PORT, TX_P);
         _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
         currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-        if (currentRxBit) error = true; // it's supposed to be logic low
+        if (currentRxBit) error = true; // it's supposed to be logic low, bus arbitration lost
         _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
         
         // Write/read 8 data bits.
+        // The arbitration is still ongoing with data bits, now we are looking for data collision.
         for (uint8_t i = 0; i < 8; i++)
         {
             if (!error) // if bus arbitration is lost, don't write anything, just read bits
@@ -241,7 +253,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         if (!error) sbi(TX_PORT, TX_P); // write stop bit at TX pin (1 bit)
         _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
         currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-        if (!currentRxBit) error = true; // error: it's supposed to be logic high
+        if (!currentRxBit) error = true; // error: it's supposed to be logic high, this may be considered as framing error
         _delay_us(64.0); // wait another 0.5 bit time to finish stop bit signaling
         
         // Save ID byte

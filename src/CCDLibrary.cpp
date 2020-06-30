@@ -86,7 +86,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         DDRB |= (1 << DDB5);                   // set OC1A/PB5 as output
         TCCR1A |= (1 << COM1A0);               // toggle OC1A on compare match
         OCR1A = _calculatedOCR1AValue;         // top value for counter (16 MHz: 7; 8 MHz: 3)
-        TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1
+        TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1, start timer
         
         // Setup external interrupts for bus-idle and active byte detection.
         pinMode(IDLE_PIN, INPUT_PULLUP);
@@ -95,8 +95,8 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         interrupts();
         
-        busIdleTimerStop(); // stop timer that is initialized in the custom transceiver section
-        _busIdle = true; // start with bus-idle condition
+        // Stop timer if it has been initialized in the custom transceiver section
+        busIdleTimerStop();
     }
     else
     {
@@ -115,9 +115,10 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         interrupts();
         
         // Enable bus-idle timer.
-        _busIdle = false; // start with bus-busy condition
         busIdleTimerInit();
     }
+    
+	_busIdle = true; // start with bus-idle condition
 }
 
 bool CCDLibrary::available()
@@ -215,7 +216,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         // and insert a 256 microseconds delay between bus-idle contition and the start bit of the ID byte.
         // This value may need to be reduced or removed because there are time-consuming instructions following 
         // the while-loop.
-        // Not honoring this delay is called "early arbitration" and abusing it is considered as a dick move 
+        // Not honoring this delay is called "early arbitration" and abusing it is considered a dick move 
         // against slower modules that try to send their own messages and failing every time.
         _delay_us(251.0); // approximately 5 microseconds elapses until we end up here so don't count that
         
@@ -279,6 +280,9 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             // Enable UDRE interrupt to continue message transmission.
             UCSR1B |= (1 << UDRIE1);
             
+            // Re-enable active byte interrupt.
+            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+            
             return 0;
         }
         else // CCD-bus arbitration lost somewhere along the way
@@ -289,6 +293,9 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             
             // Re-enable UART receiver and transmitter and receive complete interrupt.
             UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
+            
+            // Re-enable active byte interrupt.
+            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
             
             return 3;
         }
@@ -372,7 +379,7 @@ void CCDLibrary::handle_USART1_RX_vect()
     // Save last serial error.
     _lastSerialError = lastRxError;
     
-    // Re-enable active byte interrupt
+    // Re-enable active byte interrupt.
     if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 }
 
@@ -425,7 +432,7 @@ void CCDLibrary::busIdleTimerInit()
     // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
     //    F_CPU = 16000000 Hz for Arduino Mega
     //    BAUDRATE = 7812.5 bits per second
-    //    BIT_DELAY = 10 UART frame bit + _busIdleBits
+    //    BIT_DELAY = 10 UART frame bits + _busIdleBits for idle detector
     //    PRESCALER = 1024
     _calculatedOCR3AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
     
@@ -462,7 +469,7 @@ void CCDLibrary::activeByteInterruptHandler()
 {
     if (!_dedicatedTransceiver)
     {
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next message byte is received
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
         busIdleTimerStart(); // start bus-idle timer
     }
     _busIdle = false; // clear flag

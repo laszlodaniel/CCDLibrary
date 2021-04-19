@@ -1,6 +1,6 @@
 /*
  * CCDWrite.ino (https://github.com/laszlodaniel/CCDLibrary)
- * Copyright (C) 2020, László Dániel
+ * Copyright (C) 2021, Daniel Laszlo
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,18 +23,11 @@
  * new byte arrays and changing the "msgCount" value accordingly. 
  * The CCD.write() function automatically updates the source array with 
  * the correct checksum.
- * 
- * Wiring (CCDBusTransceiver): 
- * Connect RX/TX pins to the Arduino Mega's / ATmega2560's TX1/RX1 (UART1-channel) pins, respectively. 
- * Additionally connect INT5 (Pin 3) to RX1 with a jumper wire. 
- * Use the Arduino's +5V and GND pins to supply power to the development board. 
- * Connect CCD+ and CCD- pins to the vehicle's diagnostic connector (OBD1 or OBD2). 
- * Make sure to connect the additional GND pin to the diagnostic connector's ground pin. 
- * Connect T_EN jumper if standalone operation is needed (without a compatible vehicle). 
- * Disconnect T_EN jumper if CCD-bus is acting strange.
  */
 
 #include <CCDLibrary.h>
+
+#define TBEN 4 // CCDPCIBusTransceiver has programmable CCD-bus termination and bias (TBEN pin instead of jumpers)
 
 uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
@@ -55,6 +48,8 @@ bool next = true;
 void setup()
 {
     Serial.begin(250000);
+    pinMode(TBEN, OUTPUT);
+    digitalWrite(TBEN, LOW); // LOW: enable, HIGH: disable CCD-bus termination and bias
     CCD.begin(); // CDP68HC68S1
     //CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
@@ -62,12 +57,12 @@ void setup()
 void loop()
 {
     currentMillis = millis(); // check current time
-    
+
     if ((currentMillis - lastMillis) >= writeInterval) // check if writeInterval time has elapsed
     {
         lastMillis = currentMillis; // save current time
         if ((currentMillis - messageSentMillis) >= messageTimeout) next = true; // if previous message is lost somewhere then continue with the next one
-        
+
         if (next) // don't send the next message until echo of the current one is heard on the CCD-bus
         {
             switch (counter) // fill currentMessageTX array with the current message
@@ -89,7 +84,7 @@ void loop()
                     break;
                 }
             }
-            
+
             CCD.write(currentMessageTX, currentMessageTXLength); // send message on the CCD-bus
             messageSentMillis = currentMillis; // save time for timeout
             counter++; // send another message next time
@@ -111,13 +106,13 @@ void loop()
                 Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
                 Serial.print(" "); // insert whitespace between bytes
             }
-            
+
             if (matchCount == currentMessageTXLength) // sent message is the same as the received message
             {
                 matchCount = 0; // reset value
                 next = true; // echo accepted, send next message
             }
-            
+
             Serial.println(); // add new line
         }
     }

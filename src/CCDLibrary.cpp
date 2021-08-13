@@ -1,6 +1,6 @@
 ﻿/*
  * CCDLibrary (https://github.com/laszlodaniel/CCDLibrary)
- * Copyright (C) 2020, László Dániel
+ * Copyright (C) 2020-2021, Daniel Laszlo
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -56,7 +56,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     // calculateTxChecksum:
     //   ENABLE_TX_CHECKSUM: calculates the checksum of outgoing messages and overwrites the last message byte with it.
     //   DISABLE_TX_CHECKSUM: sends messages as they are, no checksum calculation is perfomed.
-    
+
     _baudrate = baudrate;
     _dedicatedTransceiver = dedicatedTransceiver;
     _busIdleBits = busIdleBits;
@@ -64,9 +64,9 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
     _lastMessageRead = true;
-    
+
     serialInit(_baudrate);
-    
+
     if (_dedicatedTransceiver)
     {
         // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
@@ -78,7 +78,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         //    CLOCK = 1000000 Hz
         //    PRESCALER = 1
         _calculatedOCR1AValue = (uint16_t)(((float)F_CPU / (2.0 * 1000000.0 * 1.0)) - 1.0);
-        
+
         noInterrupts();
         TCCR1A = 0;                            // clear register
         TCCR1B = 0;                            // clear register
@@ -87,14 +87,14 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         TCCR1A |= (1 << COM1A0);               // toggle OC1A on compare match
         OCR1A = _calculatedOCR1AValue;         // top value for counter (16 MHz: 7; 8 MHz: 3)
         TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1, start timer
-        
+
         // Setup external interrupts for bus-idle and active byte detection.
         pinMode(IDLE_PIN, INPUT_PULLUP);
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, FALLING);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         interrupts();
-        
+
         // Stop timer if it has been initialized in the custom transceiver section
         busIdleTimerStop();
     }
@@ -106,19 +106,22 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         TCCR1B = 0;
         TCNT1  = 0;
         OCR1A  = 0;
-        
+
         // Setup external interrupt for active byte detection.
         // Detach bus-idle interrupt and let the active byte interrupt do its task.
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
         interrupts();
-        
+
         // Enable bus-idle timer.
         busIdleTimerInit();
+
+        // Enable transmit delay timer.
+        transmitDelayTimerInit();
     }
-    
-	_busIdle = true; // start with bus-idle condition
+
+    _busIdle = true; // start with bus-idle condition
 }
 
 bool CCDLibrary::available()
@@ -130,7 +133,7 @@ uint8_t CCDLibrary::read(uint8_t *target)
 {
     // Copy last message to target buffer.
     for (uint8_t i = 0; i < _messageLength; i++) target[i] = _message[i];
-    
+
     _lastMessageRead = true; // set flag
     return _messageLength;
 }
@@ -142,11 +145,11 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     //   1: zero buffer length
     //   2: timeout
     //   3: data collision
-    
+
     if (bufferLength == 0) return 1;
-    
+
     for (uint8_t i = 0; i < bufferLength; i++) _serialTxBuffer[i] = buffer[i]; // copy message bytes to the transmit buffer
-    
+
     if (_calculateTxChecksum && (bufferLength > 1)) // calculate message checksum if needed, minimum message length is 2 bytes
     {
         uint8_t checksum = 0;
@@ -155,148 +158,127 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         _serialTxBuffer[checksumLocation] = checksum; // overwrite last byte in the message with the correct checksum value
         buffer[checksumLocation] = checksum; // overwrite checksum in the source array too
     }
-    
+
     _serialTxBufferPos = 0; // reset buffer position
     _serialTxLength = bufferLength; // save message length
-    
+
     bool timeout = false;
     uint32_t timeout_start = millis();
-    
+
     while (!_busIdle && !timeout) // wait for bus idle condition or timeout (1 second)
     {
         if ((millis() - timeout_start) > 1000) timeout = true;
     }
-    
+
     if (timeout) return 2;
-    
-    // First transmitted byte (ID-byte) is special, it is used to decide bus arbitration when multiple 
-    // modules are trying to send a message at the same time. 
-    // During transmission every transmitted bit of the first byte needs to be inspected against the 
-    // simultaneously received bit and block further bit transmission if data collision occurs. 
-    // This can happen if another module is sending an ID-byte value lower than ours thus overwriting 
-    // our 1 bits with its 0 bits. 
-    // A module sending the lowest ID-byte will win the bus arbitration procedure, 
-    // and others must block further data transmission (mid-byte if necessary).
-    
+
     if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
         // Enable UDRE interrupt to begin message transmission. That's it.
         // The CDP68HC68S1 chip takes care of everything.
+        noInterrupts();
         UCSR1B |= (1 << UDRIE1);
-        
+        interrupts();
+
         return 0;
     }
     else
     {
-        // Arduino board's hardware UART does not support bit-level manipulation of the data register 
-        // so it is turned off temporarily.
+        // Start Timer 4 and count 256 microseconds.
+        _transmitAllowed = false; // clear flag
+        transmitDelayTimerStart(); // start timer
+
+        // Disable UART.
+        noInterrupts();
         UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
-        
+        interrupts();
+
         // Clear bus-idle flag
         _busIdle = false;
-        
-        // Setup RX/TX pins manually.
+
+        // Setup UART pins manually.
         RX_DDR &= ~(1 << RX_P); // RX is input
         TX_DDR |= (1 << TX_P); // TX is output
         RX_PORT |= (1 << RX_P); // RX internal pullup resistor enabled
         TX_PORT |= (1 << TX_P); // TX idling at logic high
-        
+
         // Prepare variables.
         uint8_t IDbyteTX = _serialTxBuffer[0];
         uint8_t IDbyteRX = 0;
         bool currentRxBit = false;
         bool currentTxBit = false;
         bool error = false;
-        
-        // Start bit-banging RX/TX pins. 
-        // Arbitration detection is done by checking if written bit is the same as the received bit.
-        // But first we have to wait 2 bit time (256 microseconds) for synchronisation.
-        // The hardware UART has this delay "built-in" because it takes time to load a byte into the transmit buffer.
-        // Since we are bit-banging there is no buffer loading, so we have to comply with the CCD-bus standards 
-        // and insert a 256 microseconds delay between bus-idle contition and the start bit of the ID byte.
-        // This value may need to be reduced or removed because there are time-consuming instructions following 
-        // the while-loop.
-        // Not honoring this delay is called "early arbitration" and abusing it is considered a dick move 
-        // against slower modules that try to send their own messages and failing every time.
-        _delay_us(251.0); // approximately 5 microseconds elapses until we end up here so don't count that
-        
-        // Check RX-pin once again to be sure it's idling.
+
+        // First we have to wait 2 bit time (256 microseconds) for synchronisation.
+        while (!_transmitAllowed); // wait here until 256 microseconds elapses
+
+        // Check if start bit has appeared.
         currentRxBit = (RX_PIN & (1 << RX_P));
         if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us, bus arbitration lost
-        
-        // Write/read start bit (0 bit).
-        // The following is called start bit arbitration.
-        if (!error) cbi(TX_PORT, TX_P);
-        _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
-        currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-        if (currentRxBit)
+
+        // Start bit-banging RX/TX pins. 
+        // Arbitration detection is done by checking if written bit is the same as the received bit.
+        for (uint8_t i = 0; i < 10; i++) // send 10 bits
         {
-            error = true; // it's supposed to be logic low, bus arbitration lost
-            sbi(TX_PORT, TX_P); // in case of losing bus arbitration keep the TX-pin is non-destructive state (1-bit)
-        }
-        _delay_us(64.0); // wait another 0.5 bit time to finish start bit signaling
-        
-        // Write/read 8 data bits.
-        // The arbitration is still ongoing with data bits, now we are looking for data collision.
-        for (uint8_t i = 0; i < 8; i++)
-        {
-            if (!error) // if bus arbitration is lost, don't write anything, just read bits
+            if (!error)
             {
-                currentTxBit = IDbyteTX & (1 << i);
+                if (i == 0) currentTxBit = 0; // 1 start bit
+                else if (i == 9) currentTxBit = 1; // 1 stop bit
+                else currentTxBit = IDbyteTX & (1 << (i - 1)); // 8 data bits
+
                 if (currentTxBit) sbi(TX_PORT, TX_P);
                 else cbi(TX_PORT, TX_P);
             }
             else
             {
-                sbi(TX_PORT, TX_P); // in case of losing bus arbitration keep the TX-pin is non-destructive state (1-bit)
+                sbi(TX_PORT, TX_P); // keep TX-pin in non-destructive state
             }
-            
+
             _delay_us(64.0); // wait 0.5 bit time
             currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state
-            if (currentRxBit) sbi(IDbyteRX, i); // save bit
+
+            if ((i != 0) && (i != 9)) // skip start and stop bits
+            {
+                if (currentRxBit) sbi(IDbyteRX, (i - 1)); // save bit
+            }
+
             if (currentRxBit != currentTxBit) error = true;// error: bit mismatch, bus arbitration lost
             _delay_us(64.0); // wait another 0.5 bit time to finish this bit
         }
-        
-        // Write/read stop bit (1 bit).
-        if (!error) sbi(TX_PORT, TX_P); // write stop bit at TX pin (1 bit)
-        _delay_us(64.0); // wait 0.5 bit time (at 7812.5 baud it's 64 microseconds)
-        currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state (logic high or low)
-        if (!currentRxBit) error = true; // error: it's supposed to be logic high, this may be considered as framing error
-        _delay_us(64.0); // wait another 0.5 bit time to finish stop bit signaling
-        
+
         // Save ID byte
         _serialRxBuffer[0] = IDbyteRX;
         _serialRxBufferPos = 1;
-        
-        if (!error && (IDbyteRX == IDbyteTX)) // CCD-bus arbitration won
+
+        // Re-enable UART receiver and transmitter and receive complete interrupt.
+        noInterrupts();
+        UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
+        interrupts();
+
+        if (IDbyteRX == IDbyteTX) // CCD-bus arbitration won
         {
             // Send second byte next.
             _serialTxBufferPos = 1;
-            
-            // Re-enable UART receiver and transmitter and receive complete interrupt.
-            UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-            
-            // Enable UDRE interrupt to continue message transmission.
-            UCSR1B |= (1 << UDRIE1);
-            
+
             // Re-enable active byte interrupt.
             attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-            
+
+            // Enable UDRE interrupt to continue automatic message transmission.
+            noInterrupts();
+            UCSR1B |= (1 << UDRIE1);
+            interrupts();
+
             return 0;
         }
-        else // CCD-bus arbitration lost somewhere along the way
+        else
         {
             // Reset transmit buffer.
             _serialTxBufferPos = 0;
             _serialTxLength = 0;
-            
-            // Re-enable UART receiver and transmitter and receive complete interrupt.
-            UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-            
+
             // Re-enable active byte interrupt.
             attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-            
+
             return 3;
         }
     }
@@ -312,12 +294,12 @@ void CCDLibrary::processMessage()
             uint8_t checksum = 0;
             uint8_t checksumLocation = _serialRxBufferPos - 1;
             for (uint8_t i = 0; i < checksumLocation ; i++) checksum += _serialRxBuffer[i];
-            
+
             if (checksum == _serialRxBuffer[checksumLocation])
             {
                 // Copy bytes from serial receive buffer to message buffer.
                 for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
-                
+
                 _messageLength = _serialRxBufferPos;
                 _serialRxBufferPos = 0;
             }
@@ -331,11 +313,14 @@ void CCDLibrary::processMessage()
         {
             // Copy bytes from serial receive buffer to message buffer.
             for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
-            
+
             _messageLength = _serialRxBufferPos;
             _serialRxBufferPos = 0;
         }
+
         _lastMessageRead = false; // clear flag
+
+        if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
     }
 }
 
@@ -351,6 +336,17 @@ void CCDLibrary::handle_TIMER3_COMPA_vect()
     processMessage(); // process received message, if any
 }
 
+ISR(TIMER4_COMPA_vect)
+{
+    CCD.handle_TIMER4_COMPA_vect();
+}
+
+void CCDLibrary::handle_TIMER4_COMPA_vect()
+{
+    transmitDelayTimerStop(); // stop bus idle timer
+    _transmitAllowed = true; // set flag
+}
+
 ISR(USART1_RX_vect)
 {
     CCD.handle_USART1_RX_vect();
@@ -361,10 +357,10 @@ void CCDLibrary::handle_USART1_RX_vect()
     // Read UART status register and UART data register.
     uint8_t usr  = UCSR1A;
     uint8_t data = UDR1;
-    
+
     // Get error bits from status register.
     uint8_t lastRxError = (usr & ((1 << FE1) | (1 << DOR1)));
-    
+
     // Save byte in serial receive buffer.
     if (_serialRxBufferPos < 16)
     {
@@ -375,10 +371,10 @@ void CCDLibrary::handle_USART1_RX_vect()
     {
         lastRxError |= UART_BUFFER_OVERFLOW; // error: buffer overflow
     }
-    
+
     // Save last serial error.
     _lastSerialError = lastRxError;
-    
+
     // Re-enable active byte interrupt.
     if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 }
@@ -413,15 +409,15 @@ void CCDLibrary::serialInit(float baudrate)
         _serialTxLength = 0;
         _lastSerialError = 0;
     }
-    
+
     // Set baud rate.
     uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
     UBRR1H = (ubrr >> 8) & 0x0F;
     UBRR1L = ubrr & 0xFF;
-    
+
     // Enable UART receiver and transmitter and receive complete interrupt.
     UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-    
+
     // Set frame format: asynchronous, 8 data bit, no parity, 1 stop bit.
     UCSR1C |= (1 << UCSZ10) | (1 << UCSZ11);
 }
@@ -435,7 +431,7 @@ void CCDLibrary::busIdleTimerInit()
     //    BIT_DELAY = 10 UART frame bits + _busIdleBits for idle detector
     //    PRESCALER = 1024
     _calculatedOCR3AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
-    
+
     // Setup Timer 3 to do idle timing measurements.
     noInterrupts();
     TCCR3A = 0; // clear register
@@ -457,6 +453,34 @@ void CCDLibrary::busIdleTimerStop()
 {
     TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
     TCNT3 = 0; // clear counter
+}
+
+void CCDLibrary::transmitDelayTimerInit()
+{
+    // Count 256 microseconds (3906.25 Hz).
+    // Calculate top value.
+    _calculatedOCR4AValue = (uint16_t)(((float)F_CPU / (3906.25 * 1024.0)) - 1.0);
+
+    noInterrupts();
+    TCCR4A = 0; // clear register
+    TCCR4B = 0; // clear register
+    TCNT4 = 0; // clear counter
+    OCR4A = _calculatedOCR4AValue; // top value to count
+    TCCR4B |= (1 << WGM42); // CTC mode, prescaler = 1024, stop timer
+    TIMSK4 |= (1 << OCIE4A); // Output Compare Match A Interrupt Enable
+    interrupts();
+}
+
+void CCDLibrary::transmitDelayTimerStart()
+{
+    TCNT4 = 0; // clear counter
+    TCCR4B |= (1 << CS42) | (1 << CS40); // prescaler = 1024, start timer
+}
+
+void CCDLibrary::transmitDelayTimerStop()
+{
+    TCCR4B &= ~(1 << CS42) & ~(1 << CS40); // clear prescaler to stop timer
+    TCNT4 = 0; // clear counter
 }
 
 void CCDLibrary::busIdleInterruptHandler()

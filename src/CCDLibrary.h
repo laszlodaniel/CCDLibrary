@@ -1,6 +1,6 @@
 /*
  * CCDLibrary (https://github.com/laszlodaniel/CCDLibrary)
- * Copyright (C) 2020, László Dániel
+ * Copyright (C) 2020-2021, Daniel Laszlo
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -73,6 +73,7 @@ class CCDLibrary
         uint8_t read(uint8_t *target);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
         void handle_TIMER3_COMPA_vect();
+        void handle_TIMER4_COMPA_vect();
         void handle_USART1_RX_vect();
         void handle_USART1_UDRE_vect();
         void busIdleInterruptHandler();
@@ -88,6 +89,7 @@ class CCDLibrary
         volatile uint8_t _serialTxLength;
         volatile uint8_t _lastSerialError;
         volatile bool _busIdle;
+        volatile bool _transmitAllowed;
         volatile bool _lastMessageRead;
         float _baudrate;
         bool _dedicatedTransceiver;
@@ -96,11 +98,15 @@ class CCDLibrary
         bool _calculateTxChecksum;
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
+        uint16_t _calculatedOCR4AValue;
         void processMessage();
         void serialInit(float baudrate);
         void busIdleTimerInit();
         void busIdleTimerStart();
         void busIdleTimerStop();
+        void transmitDelayTimerInit();
+        void transmitDelayTimerStart();
+        void transmitDelayTimerStop();
 };
 
 extern CCDLibrary CCD;

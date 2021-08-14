@@ -98,25 +98,24 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
 
 void CCDLibrary::serialInit(float baudrate)
 {
-    // Reset buffer.
     ATOMIC_BLOCK(ATOMIC_FORCEON)
     {
         _serialRxBufferPos = 0;
         _serialTxBufferPos = 0;
         _serialTxLength = 0;
         _lastSerialError = 0;
+
+        // Set baud rate.
+        uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
+        UBRR1H = (ubrr >> 8) & 0x0F;
+        UBRR1L = ubrr & 0xFF;
+
+        // Enable UART receiver and transmitter and receive complete interrupt.
+        UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
+
+        // Set frame format: asynchronous, 8 data bit, no parity, 1 stop bit.
+        UCSR1C |= (1 << UCSZ10) | (1 << UCSZ11);
     }
-
-    // Set baud rate.
-    uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
-    UBRR1H = (ubrr >> 8) & 0x0F;
-    UBRR1L = ubrr & 0xFF;
-
-    // Enable UART receiver and transmitter and receive complete interrupt.
-    UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-
-    // Set frame format: asynchronous, 8 data bit, no parity, 1 stop bit.
-    UCSR1C |= (1 << UCSZ10) | (1 << UCSZ11);
 }
 
 ISR(USART1_RX_vect)
@@ -253,6 +252,7 @@ void CCDLibrary::handle_TIMER1_COMPA_vect()
     busIdleTimerStop(); // stop bus idle timer
     _busIdle = true; // set flag
     processMessage(); // process received message, if any
+    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 }
 
 bool CCDLibrary::available()
@@ -446,7 +446,5 @@ void CCDLibrary::processMessage()
         }
 
         _lastMessageRead = false; // clear flag
-
-        if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
     }
 }

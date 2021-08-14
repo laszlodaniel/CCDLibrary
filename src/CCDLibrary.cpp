@@ -69,59 +69,190 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
 
     if (_dedicatedTransceiver)
     {
-        // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
-        // OCR1A = (F_CPU / (2 * CLOCK * PRESCALER)) - 1
-        // Clock frequency is multiplied by 2 because the raw signal needs to
-        // oscillate two times for a single clock period. So in reality the timer
-        // toggles the output pin at 2 MHz which results in a 1 MHz clock signal.
-        //    F_CPU = 16000000 Hz for Arduino Mega
-        //    CLOCK = 1000000 Hz
-        //    PRESCALER = 1
-        _calculatedOCR1AValue = (uint16_t)(((float)F_CPU / (2.0 * 1000000.0 * 1.0)) - 1.0);
-
-        noInterrupts();
-        TCCR1A = 0;                            // clear register
-        TCCR1B = 0;                            // clear register
-        TCNT1 = 0;                             // clear counter
-        DDRB |= (1 << DDB5);                   // set OC1A/PB5 as output
-        TCCR1A |= (1 << COM1A0);               // toggle OC1A on compare match
-        OCR1A = _calculatedOCR1AValue;         // top value for counter (16 MHz: 7; 8 MHz: 3)
-        TCCR1B |= (1 << WGM12) | (1 << CS10);  // CTC mode, prescaler = 1, start timer
-
+        // Enable 1 MHz clock generator on Timer 1.
+        clockGeneratorInit();
+        
         // Setup external interrupts for bus-idle and active byte detection.
         pinMode(IDLE_PIN, INPUT_PULLUP);
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, FALLING);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-        interrupts();
-
-        // Stop timer if it has been initialized in the custom transceiver section
-        busIdleTimerStop();
     }
     else
     {
-        // Disable 1 MHz clock signal.
-        noInterrupts();
-        TCCR1A = 0;
-        TCCR1B = 0;
-        TCNT1  = 0;
-        OCR1A  = 0;
+        // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
+        busIdleTimerInit();
 
         // Setup external interrupt for active byte detection.
         // Detach bus-idle interrupt and let the active byte interrupt do its task.
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
-        interrupts();
 
-        // Enable bus-idle timer.
-        busIdleTimerInit();
-
-        // Enable transmit delay timer.
-        transmitDelayTimerInit();
+        // Start bus-idle timer.
+        busIdleTimerStart();
     }
 
     _busIdle = true; // start with bus-idle condition
+}
+
+void CCDLibrary::serialInit(float baudrate)
+{
+    // Reset buffer.
+    ATOMIC_BLOCK(ATOMIC_FORCEON)
+    {
+        _serialRxBufferPos = 0;
+        _serialTxBufferPos = 0;
+        _serialTxLength = 0;
+        _lastSerialError = 0;
+    }
+
+    // Set baud rate.
+    uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
+    UBRR1H = (ubrr >> 8) & 0x0F;
+    UBRR1L = ubrr & 0xFF;
+
+    // Enable UART receiver and transmitter and receive complete interrupt.
+    UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
+
+    // Set frame format: asynchronous, 8 data bit, no parity, 1 stop bit.
+    UCSR1C |= (1 << UCSZ10) | (1 << UCSZ11);
+}
+
+ISR(USART1_RX_vect)
+{
+    CCD.handle_USART1_RX_vect();
+}
+
+void CCDLibrary::handle_USART1_RX_vect()
+{
+    // Read UART status register and UART data register.
+    uint8_t usr  = UCSR1A;
+    uint8_t data = UDR1;
+
+    // Get error bits from status register.
+    uint8_t lastRxError = (usr & ((1 << FE1) | (1 << DOR1)));
+
+    // Save byte in serial receive buffer.
+    if (_serialRxBufferPos < 16)
+    {
+        _serialRxBuffer[_serialRxBufferPos] = data;
+        _serialRxBufferPos++;
+    }
+    else
+    {
+        lastRxError |= UART_BUFFER_OVERFLOW; // error: buffer overflow
+    }
+
+    // Save last serial error.
+    _lastSerialError = lastRxError;
+
+    // Re-enable active byte interrupt.
+    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+}
+
+ISR(USART1_UDRE_vect)
+{
+    CCD.handle_USART1_UDRE_vect();
+}
+
+void CCDLibrary::handle_USART1_UDRE_vect()
+{
+    if (_serialTxBufferPos < _serialTxLength)
+    {
+        UDR1 = _serialTxBuffer[_serialTxBufferPos]; // write next byte
+        _serialTxBufferPos++; // increment Tx buffer position
+    }
+    else
+    {
+        UCSR1B &= ~(1 << UDRIE1); // Tx buffer empty, disable UDRE interrupt
+        _serialTxBufferPos = 0; // reset Tx buffer position
+        _serialTxLength = 0; // reset length
+    }
+}
+
+void CCDLibrary::clockGeneratorInit()
+{
+    // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
+    // OCR1A = (F_CPU / (2 * CLOCK * PRESCALER)) - 1
+    // Clock frequency is multiplied by 2 because the raw signal needs to
+    // oscillate two times for a single clock period. So in reality the timer
+    // toggles the output pin at 2 MHz which results in a 1 MHz clock signal.
+    //    F_CPU = 16000000 Hz for Arduino Mega
+    //    CLOCK = 1000000 Hz
+    //    PRESCALER = 1
+    _calculatedOCR1AValue = (uint16_t)(((float)F_CPU / (2.0 * 1000000.0 * 1.0)) - 1.0);
+
+    noInterrupts();
+    TCCR1A = 0; // clear register
+    TCCR1B = 0; // clear register
+    TCNT1 = 0;  // clear counter
+    DDRB |= (1 << DDB5); // set OC1A/PB5 as output
+    TCCR1A |= (1 << COM1A0); // toggle OC1A on compare match
+    OCR1A = _calculatedOCR1AValue; // top value for counter (16 MHz: 7; 8 MHz: 3)
+    TCCR1B |= (1 << WGM12) | (1 << CS10); // CTC mode, prescaler = 1, start timer
+    interrupts();
+}
+
+void CCDLibrary::busIdleTimerInit()
+{
+    // Calculate top value to count beginning from the UART frame start bit until bus-idle condition.
+    // OCR1A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
+    //    F_CPU = 16000000 Hz for Arduino Mega
+    //    BAUDRATE = 7812.5 bits per second
+    //    BIT_DELAY = 10 UART frame bits + _busIdleBits for idle detector
+    //    PRESCALER = 1024
+    _calculatedOCR1AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
+
+    noInterrupts();
+    TCCR1A = 0; // clear register
+    TCCR1B = 0; // clear register
+    TCNT1 = 0; // clear counter
+    DDRB &= ~(1 << DDB5); // set OC1A/PB5 as input
+    OCR1A = _calculatedOCR1AValue; // top value to count
+    TCCR1B |= (1 << WGM12); // CTC mode, prescaler = 1024, stop timer
+    TIMSK1 |= (1 << OCIE1A); // Output Compare Match A Interrupt Enable
+    interrupts();
+}
+
+void CCDLibrary::busIdleTimerStart()
+{
+    TCNT1 = 0; // clear counter
+    TCCR1B |= (1 << CS12) | (1 << CS10); // prescaler = 1024, start timer
+}
+
+void CCDLibrary::busIdleTimerStop()
+{
+    TCCR1B &= ~(1 << CS12) & ~(1 << CS10); // clear prescaler to stop timer
+    TCNT1 = 0; // clear counter
+}
+
+void CCDLibrary::busIdleInterruptHandler()
+{
+    _busIdle = true; // set flag
+    processMessage(); // process received message, if any
+}
+
+void CCDLibrary::activeByteInterruptHandler()
+{
+    if (!_dedicatedTransceiver)
+    {
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
+        busIdleTimerStart(); // start bus-idle timer
+    }
+    _busIdle = false; // clear flag
+}
+
+ISR(TIMER1_COMPA_vect)
+{
+    CCD.handle_TIMER1_COMPA_vect();
+}
+
+void CCDLibrary::handle_TIMER1_COMPA_vect()
+{
+    busIdleTimerStop(); // stop bus idle timer
+    _busIdle = true; // set flag
+    processMessage(); // process received message, if any
 }
 
 bool CCDLibrary::available()
@@ -184,10 +315,6 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     }
     else
     {
-        // Start Timer 4 and count 256 microseconds.
-        _transmitAllowed = false; // clear flag
-        transmitDelayTimerStart(); // start timer
-
         // Disable UART.
         noInterrupts();
         UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
@@ -210,7 +337,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         bool error = false;
 
         // First we have to wait 2 bit time (256 microseconds) for synchronisation.
-        while (!_transmitAllowed); // wait here until 256 microseconds elapses
+        _delay_us(251.0); // approximately 5 microseconds elapses until we end up here so don't count that
 
         // Check if start bit has appeared.
         currentRxBit = (RX_PIN & (1 << RX_P));
@@ -322,179 +449,4 @@ void CCDLibrary::processMessage()
 
         if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
     }
-}
-
-ISR(TIMER3_COMPA_vect)
-{
-    CCD.handle_TIMER3_COMPA_vect();
-}
-
-void CCDLibrary::handle_TIMER3_COMPA_vect()
-{
-    busIdleTimerStop(); // stop bus idle timer
-    _busIdle = true; // set flag
-    processMessage(); // process received message, if any
-}
-
-ISR(TIMER4_COMPA_vect)
-{
-    CCD.handle_TIMER4_COMPA_vect();
-}
-
-void CCDLibrary::handle_TIMER4_COMPA_vect()
-{
-    transmitDelayTimerStop(); // stop bus idle timer
-    _transmitAllowed = true; // set flag
-}
-
-ISR(USART1_RX_vect)
-{
-    CCD.handle_USART1_RX_vect();
-}
-
-void CCDLibrary::handle_USART1_RX_vect()
-{
-    // Read UART status register and UART data register.
-    uint8_t usr  = UCSR1A;
-    uint8_t data = UDR1;
-
-    // Get error bits from status register.
-    uint8_t lastRxError = (usr & ((1 << FE1) | (1 << DOR1)));
-
-    // Save byte in serial receive buffer.
-    if (_serialRxBufferPos < 16)
-    {
-        _serialRxBuffer[_serialRxBufferPos] = data;
-        _serialRxBufferPos++;
-    }
-    else
-    {
-        lastRxError |= UART_BUFFER_OVERFLOW; // error: buffer overflow
-    }
-
-    // Save last serial error.
-    _lastSerialError = lastRxError;
-
-    // Re-enable active byte interrupt.
-    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-}
-
-ISR(USART1_UDRE_vect)
-{
-    CCD.handle_USART1_UDRE_vect();
-}
-
-void CCDLibrary::handle_USART1_UDRE_vect()
-{
-    if (_serialTxBufferPos < _serialTxLength)
-    {
-        UDR1 = _serialTxBuffer[_serialTxBufferPos]; // write next byte
-        _serialTxBufferPos++; // increment Tx buffer position
-    }
-    else
-    {
-        UCSR1B &= ~(1 << UDRIE1); // Tx buffer empty, disable UDRE interrupt
-        _serialTxBufferPos = 0; // reset Tx buffer position
-        _serialTxLength = 0; // reset length
-    }
-}
-
-void CCDLibrary::serialInit(float baudrate)
-{
-    // Reset buffer.
-    ATOMIC_BLOCK(ATOMIC_FORCEON)
-    {
-        _serialRxBufferPos = 0;
-        _serialTxBufferPos = 0;
-        _serialTxLength = 0;
-        _lastSerialError = 0;
-    }
-
-    // Set baud rate.
-    uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
-    UBRR1H = (ubrr >> 8) & 0x0F;
-    UBRR1L = ubrr & 0xFF;
-
-    // Enable UART receiver and transmitter and receive complete interrupt.
-    UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-
-    // Set frame format: asynchronous, 8 data bit, no parity, 1 stop bit.
-    UCSR1C |= (1 << UCSZ10) | (1 << UCSZ11);
-}
-
-void CCDLibrary::busIdleTimerInit()
-{
-    // Calculate top value to count beginning from the UART frame start bit until bus-idle condition.
-    // OCR3A = ((F_CPU * (1 / BAUDRATE) * BIT_DELAY) / PRESCALER) - 1
-    //    F_CPU = 16000000 Hz for Arduino Mega
-    //    BAUDRATE = 7812.5 bits per second
-    //    BIT_DELAY = 10 UART frame bits + _busIdleBits for idle detector
-    //    PRESCALER = 1024
-    _calculatedOCR3AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
-
-    // Setup Timer 3 to do idle timing measurements.
-    noInterrupts();
-    TCCR3A = 0; // clear register
-    TCCR3B = 0; // clear register
-    TCNT3 = 0; // clear counter
-    OCR3A = _calculatedOCR3AValue; // top value to count
-    TCCR3B |= (1 << WGM32) | (1 << CS32) | (1 << CS30); // CTC mode, prescaler = 1024, start timer
-    TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
-    interrupts();
-}
-
-void CCDLibrary::busIdleTimerStart()
-{
-    TCNT3 = 0; // clear counter
-    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler = 1024, start timer
-}
-
-void CCDLibrary::busIdleTimerStop()
-{
-    TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
-    TCNT3 = 0; // clear counter
-}
-
-void CCDLibrary::transmitDelayTimerInit()
-{
-    // Count 256 microseconds (3906.25 Hz).
-    // Calculate top value.
-    _calculatedOCR4AValue = (uint16_t)(((float)F_CPU / (3906.25 * 1024.0)) - 1.0);
-
-    noInterrupts();
-    TCCR4A = 0; // clear register
-    TCCR4B = 0; // clear register
-    TCNT4 = 0; // clear counter
-    OCR4A = _calculatedOCR4AValue; // top value to count
-    TCCR4B |= (1 << WGM42); // CTC mode, prescaler = 1024, stop timer
-    TIMSK4 |= (1 << OCIE4A); // Output Compare Match A Interrupt Enable
-    interrupts();
-}
-
-void CCDLibrary::transmitDelayTimerStart()
-{
-    TCNT4 = 0; // clear counter
-    TCCR4B |= (1 << CS42) | (1 << CS40); // prescaler = 1024, start timer
-}
-
-void CCDLibrary::transmitDelayTimerStop()
-{
-    TCCR4B &= ~(1 << CS42) & ~(1 << CS40); // clear prescaler to stop timer
-    TCNT4 = 0; // clear counter
-}
-
-void CCDLibrary::busIdleInterruptHandler()
-{
-    _busIdle = true; // set flag
-    processMessage(); // process received message, if any
-}
-
-void CCDLibrary::activeByteInterruptHandler()
-{
-    if (!_dedicatedTransceiver)
-    {
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
-        busIdleTimerStart(); // start bus-idle timer
-    }
-    _busIdle = false; // clear flag
 }

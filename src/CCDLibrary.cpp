@@ -64,6 +64,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
     _lastMessageRead = true;
+    _busIdle = false;
 
     serialInit(_baudrate);
 
@@ -92,8 +93,6 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         // Start bus-idle timer.
         busIdleTimerStart();
     }
-
-    _busIdle = true; // start with bus-idle condition
 }
 
 void CCDLibrary::serialInit(float baudrate)
@@ -234,12 +233,13 @@ void CCDLibrary::busIdleInterruptHandler()
 
 void CCDLibrary::activeByteInterruptHandler()
 {
+    _busIdle = false; // clear flag
+
     if (!_dedicatedTransceiver)
     {
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
         busIdleTimerStart(); // start bus-idle timer
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
     }
-    _busIdle = false; // clear flag
 }
 
 ISR(TIMER1_COMPA_vect)
@@ -249,10 +249,13 @@ ISR(TIMER1_COMPA_vect)
 
 void CCDLibrary::handle_TIMER1_COMPA_vect()
 {
-    busIdleTimerStop(); // stop bus idle timer
-    _busIdle = true; // set flag
-    processMessage(); // process received message, if any
-    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+    if (!_dedicatedTransceiver)
+    {
+        _busIdle = true; // set flag
+        busIdleTimerStop(); // stop bus idle timer
+        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+        processMessage(); // process received message, if any
+    }
 }
 
 bool CCDLibrary::available()

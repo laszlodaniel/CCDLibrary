@@ -64,7 +64,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
     _lastMessageRead = true;
-    _busIdle = false;
+    _busIdle = true;
 
     serialInit(_baudrate);
 

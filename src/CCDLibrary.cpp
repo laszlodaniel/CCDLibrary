@@ -65,32 +65,35 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _messageLength = 0;
     _lastMessageRead = true;
     _busIdle = true;
+    _transmitAllowed = true;
 
     serialInit(_baudrate);
+    transmitDelayTimerInit();
 
     if (_dedicatedTransceiver)
     {
-        // Enable 1 MHz clock generator on Timer 1.
-        clockGeneratorInit();
-        
-        // Setup external interrupts for bus-idle and active byte detection.
+        // CDP68HC68S1 transceiver chip.
+        // Setup external interrupt for bus-idle detection on the IDLE pin.
+        // Detach active byte interrupt.
         pinMode(IDLE_PIN, INPUT_PULLUP);
-        pinMode(CTRL_PIN, INPUT_PULLUP);
-        attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, FALLING);
-        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+        attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, CHANGE);
+        detachInterrupt(digitalPinToInterrupt(CTRL_PIN));
+
+        // Enable 1 MHz clock generator on Timer 1 and disable bus-idle timer at the same time.
+        clockGeneratorInit();
     }
     else
     {
-        // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
-        busIdleTimerInit();
-
-        // Setup external interrupt for active byte detection.
-        // Detach bus-idle interrupt and let the active byte interrupt do its task.
+        // Custom transceiver circuits.
+        // Setup external interrupt for active byte detection on the "CTRL" pin. RX1 pin is spliced and routed here.
+        // Detach bus-idle interrupt. The active byte interrupt takes over the role of detecting bus-idle condition.
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
         detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
 
+        // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
         // Start bus-idle timer.
+        busIdleTimerInit();
         busIdleTimerStart();
     }
 }
@@ -169,6 +172,47 @@ void CCDLibrary::handle_USART1_UDRE_vect()
     }
 }
 
+void CCDLibrary::transmitDelayTimerInit()
+{
+    // Count 256 microseconds (3906.25 Hz) after CCD-bus goes idle.
+    // After this interval elapses ID-byte transmission may occur.
+    // Calculate top value to count.
+    _calculatedOCR3AValue = (uint16_t)(((float)F_CPU / (3906.25 * 1024.0)) - 1.0);
+
+    ATOMIC_BLOCK(ATOMIC_FORCEON)
+    {
+        TCCR3A = 0; // clear register
+        TCCR3B = 0; // clear register
+        TCNT3 = 0; // clear counter
+        OCR3A = _calculatedOCR3AValue; // top value to count
+        TCCR3B |= (1 << WGM32); // CTC mode, prescaler = 1024, stop timer
+        TIMSK3 |= (1 << OCIE3A); // Output Compare Match A Interrupt Enable
+    }
+}
+
+void CCDLibrary::transmitDelayTimerStart()
+{
+    TCNT3 = 0; // clear counter
+    TCCR3B |= (1 << CS32) | (1 << CS30); // prescaler = 1024, start timer
+}
+
+void CCDLibrary::transmitDelayTimerStop()
+{
+    TCCR3B &= ~(1 << CS32) & ~(1 << CS30); // clear prescaler to stop timer
+    TCNT3 = 0; // clear counter
+}
+
+ISR(TIMER3_COMPA_vect)
+{
+    CCD.handle_TIMER3_COMPA_vect();
+}
+
+void CCDLibrary::handle_TIMER3_COMPA_vect()
+{
+    transmitDelayTimerStop(); // stop transmit delay timer
+    _transmitAllowed = true; // set flag
+}
+
 void CCDLibrary::clockGeneratorInit()
 {
     // Enable 1 MHz clock signal for the CDP68HC68S1 transceiver.
@@ -181,15 +225,17 @@ void CCDLibrary::clockGeneratorInit()
     //    PRESCALER = 1
     _calculatedOCR1AValue = (uint16_t)(((float)F_CPU / (2.0 * 1000000.0 * 1.0)) - 1.0);
 
-    noInterrupts();
-    TCCR1A = 0; // clear register
-    TCCR1B = 0; // clear register
-    TCNT1 = 0;  // clear counter
-    DDRB |= (1 << DDB5); // set OC1A/PB5 as output
-    TCCR1A |= (1 << COM1A0); // toggle OC1A on compare match
-    OCR1A = _calculatedOCR1AValue; // top value for counter (16 MHz: 7; 8 MHz: 3)
-    TCCR1B |= (1 << WGM12) | (1 << CS10); // CTC mode, prescaler = 1, start timer
-    interrupts();
+    ATOMIC_BLOCK(ATOMIC_FORCEON)
+    {
+        TCCR1A = 0; // clear register
+        TCCR1B = 0; // clear register
+        TCNT1 = 0;  // clear counter
+        DDRB |= (1 << DDB5); // set OC1A/PB5 as output
+        TCCR1A |= (1 << COM1A0); // toggle OC1A on compare match
+        OCR1A = _calculatedOCR1AValue; // top value for counter (16 MHz: 7; 8 MHz: 3)
+        TIMSK1 &= ~(1 << OCIE1A); // Disable Output Compare Match A Interrupt
+        TCCR1B |= (1 << WGM12) | (1 << CS10); // CTC mode, prescaler = 1, start timer
+    }
 }
 
 void CCDLibrary::busIdleTimerInit()
@@ -202,15 +248,16 @@ void CCDLibrary::busIdleTimerInit()
     //    PRESCALER = 1024
     _calculatedOCR1AValue = (uint16_t)((((float)F_CPU * (1.0 / _baudrate) * (10.0 + _busIdleBits)) / 1024.0) - 1.0);
 
-    noInterrupts();
-    TCCR1A = 0; // clear register
-    TCCR1B = 0; // clear register
-    TCNT1 = 0; // clear counter
-    DDRB &= ~(1 << DDB5); // set OC1A/PB5 as input
-    OCR1A = _calculatedOCR1AValue; // top value to count
-    TCCR1B |= (1 << WGM12); // CTC mode, prescaler = 1024, stop timer
-    TIMSK1 |= (1 << OCIE1A); // Output Compare Match A Interrupt Enable
-    interrupts();
+    ATOMIC_BLOCK(ATOMIC_FORCEON)
+    {
+        TCCR1A = 0; // clear register
+        TCCR1B = 0; // clear register
+        TCNT1 = 0; // clear counter
+        DDRB &= ~(1 << DDB5); // set OC1A/PB5 as input
+        OCR1A = _calculatedOCR1AValue; // top value to count
+        TCCR1B |= (1 << WGM12); // CTC mode, prescaler = 1024, stop timer
+        TIMSK1 |= (1 << OCIE1A); // Enable Output Compare Match A Interrupt
+    }
 }
 
 void CCDLibrary::busIdleTimerStart()
@@ -227,19 +274,25 @@ void CCDLibrary::busIdleTimerStop()
 
 void CCDLibrary::busIdleInterruptHandler()
 {
-    _busIdle = true; // set flag
-    processMessage(); // process received message, if any
+    if (PINE & (1 << PE4)) // IDLE pin transitioned from low to high = CCD-bus busy
+    {
+        _busIdle = false; // clear flag
+        _transmitAllowed = false; // clear flag, interrupt controlled message transmission is not affected by this flag
+    }
+    else // IDLE pin transitioned from high to low = CCD-bus idle
+    {
+        transmitDelayTimerStart(); // start counting 256 microseconds for the next message transmission opportunity
+        _busIdle = true; // set flag
+        processMessage(); // process received message, if any
+    }
 }
 
 void CCDLibrary::activeByteInterruptHandler()
 {
+    busIdleTimerStart(); // start bus-idle timer right after UART RX1 pin goes low (start bit)
+    detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
     _busIdle = false; // clear flag
-
-    if (!_dedicatedTransceiver)
-    {
-        busIdleTimerStart(); // start bus-idle timer
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN)); // disable interrupt until next byte's start bit
-    }
+    _transmitAllowed = false; // clear flag, interrupt controlled message transmission is not affected by this flag
 }
 
 ISR(TIMER1_COMPA_vect)
@@ -249,13 +302,11 @@ ISR(TIMER1_COMPA_vect)
 
 void CCDLibrary::handle_TIMER1_COMPA_vect()
 {
-    if (!_dedicatedTransceiver)
-    {
-        _busIdle = true; // set flag
-        busIdleTimerStop(); // stop bus idle timer
-        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-        processMessage(); // process received message, if any
-    }
+    busIdleTimerStop(); // stop bus idle timer
+    _busIdle = true; // set flag
+    transmitDelayTimerStart(); // start counting 256 microseconds for the next message transmission opportunity
+    attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+    processMessage(); // process received message, if any
 }
 
 bool CCDLibrary::available()
@@ -308,29 +359,32 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
 
     if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
+        while (!_transmitAllowed); // wait until 256 microseconds elapses after bus goes idle to begin message transmission
+        
         // Enable UDRE interrupt to begin message transmission. That's it.
         // The CDP68HC68S1 chip takes care of everything.
-        noInterrupts();
-        UCSR1B |= (1 << UDRIE1);
-        interrupts();
+        ATOMIC_BLOCK(ATOMIC_FORCEON)
+        {
+            UCSR1B |= (1 << UDRIE1);
+        }
+
+        _transmitAllowed = false; // clear flag
 
         return 0;
     }
     else
     {
-        // Disable UART.
-        noInterrupts();
-        UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
-        interrupts();
+        // Disable UART1.
+        ATOMIC_BLOCK(ATOMIC_FORCEON)
+        {
+            UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
+        }
 
-        // Clear bus-idle flag
-        _busIdle = false;
-
-        // Setup UART pins manually.
-        RX_DDR &= ~(1 << RX_P); // RX is input
-        TX_DDR |= (1 << TX_P); // TX is output
-        RX_PORT |= (1 << RX_P); // RX internal pullup resistor enabled
-        TX_PORT |= (1 << TX_P); // TX idling at logic high
+        // Setup UART1 pins manually.
+        RX_DDR &= ~(1 << RX_P); // RX1 is input
+        TX_DDR |= (1 << TX_P); // TX1 is output
+        RX_PORT |= (1 << RX_P); // RX1 internal pullup resistor enabled
+        TX_PORT |= (1 << TX_P); // TX1 idling at logic high
 
         // Prepare variables.
         uint8_t IDbyteTX = _serialTxBuffer[0];
@@ -339,18 +393,17 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         bool currentTxBit = false;
         bool error = false;
 
-        // First we have to wait 2 bit time (256 microseconds) for synchronisation.
-        _delay_us(251.0); // approximately 5 microseconds elapses until we end up here so don't count that
+        while (!_transmitAllowed); // wait until 256 microseconds elapses after bus goes idle to begin message transmission
 
-        // Check if start bit has appeared.
-        currentRxBit = (RX_PIN & (1 << RX_P));
+        _transmitAllowed = false; // clear flag
+        currentRxBit = (RX_PIN & (1 << RX_P)); // check if start bit has appeared
         if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us, bus arbitration lost
 
-        // Start bit-banging RX/TX pins. 
+        // Start bit-banging RX1/TX1 pins.
         // Arbitration detection is done by checking if written bit is the same as the received bit.
         for (uint8_t i = 0; i < 10; i++) // send 10 bits
         {
-            if (!error)
+            if (!error) // ongoing arbitration
             {
                 if (i == 0) currentTxBit = 0; // 1 start bit
                 else if (i == 9) currentTxBit = 1; // 1 stop bit
@@ -359,7 +412,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
                 if (currentTxBit) sbi(TX_PORT, TX_P);
                 else cbi(TX_PORT, TX_P);
             }
-            else
+            else // arbitration lost
             {
                 sbi(TX_PORT, TX_P); // keep TX-pin in non-destructive state
             }
@@ -376,14 +429,15 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             _delay_us(64.0); // wait another 0.5 bit time to finish this bit
         }
 
-        // Save ID byte
+        // Save received ID byte.
         _serialRxBuffer[0] = IDbyteRX;
         _serialRxBufferPos = 1;
 
         // Re-enable UART receiver and transmitter and receive complete interrupt.
-        noInterrupts();
-        UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-        interrupts();
+        ATOMIC_BLOCK(ATOMIC_FORCEON)
+        {
+            UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
+        }
 
         if (IDbyteRX == IDbyteTX) // CCD-bus arbitration won
         {
@@ -394,13 +448,14 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 
             // Enable UDRE interrupt to continue automatic message transmission.
-            noInterrupts();
-            UCSR1B |= (1 << UDRIE1);
-            interrupts();
+            ATOMIC_BLOCK(ATOMIC_FORCEON)
+            {
+                UCSR1B |= (1 << UDRIE1);
+            }
 
             return 0;
         }
-        else
+        else  // CCD-bus arbitration lost
         {
             // Reset transmit buffer.
             _serialTxBufferPos = 0;

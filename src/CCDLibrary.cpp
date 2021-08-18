@@ -31,7 +31,7 @@ static void isrIdle()
 {
     CCD.busIdleInterruptHandler();
 }
-    
+
 static void isrActiveByte()
 {
     CCD.activeByteInterruptHandler();
@@ -314,7 +314,7 @@ bool CCDLibrary::available()
     return !_lastMessageRead;
 }
 
-uint8_t CCDLibrary::read(uint8_t *target)
+uint8_t CCDLibrary::read(uint8_t* target)
 {
     // Copy last message to target buffer.
     for (uint8_t i = 0; i < _messageLength; i++) target[i] = _message[i];
@@ -323,7 +323,7 @@ uint8_t CCDLibrary::read(uint8_t *target)
     return _messageLength;
 }
 
-uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
+uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
 {
     // Return values:
     //   0: ok
@@ -347,44 +347,35 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
     _serialTxBufferPos = 0; // reset buffer position
     _serialTxLength = bufferLength; // save message length
 
-    bool timeout = false;
-    uint32_t timeout_start = millis();
-
-    while (!_busIdle && !timeout) // wait for bus idle condition or timeout (1 second)
-    {
-        if ((millis() - timeout_start) > 1000) timeout = true;
-    }
-
-    if (timeout) return 2;
-
     if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
-        while (!_transmitAllowed); // wait until 256 microseconds elapses after bus goes idle to begin message transmission
-        
-        // Enable UDRE interrupt to begin message transmission. That's it.
-        // The CDP68HC68S1 chip takes care of everything.
-        ATOMIC_BLOCK(ATOMIC_FORCEON)
+        bool timeout = false;
+        uint32_t timeoutStart = millis();
+
+        // Wait for bus-idle, the 256 microseconds delay is handled by the transceiver chip.
+        while (!_busIdle && !timeout)
         {
-            UCSR1B |= (1 << UDRIE1);
+            if ((uint32_t)(millis() - timeoutStart) >= 1000) timeout = true;
         }
 
-        _transmitAllowed = false; // clear flag
+        if (timeout) return 2;
+
+        // Enable UDRE interrupt to begin message transmission. That's it.
+        // The CDP68HC68S1 chip takes care of everything.
+        UCSR1B |= (1 << UDRIE1);
 
         return 0;
     }
-    else
+    else // custom CCD-bus transceiver circuit needs special handling
     {
         // Disable UART1.
-        ATOMIC_BLOCK(ATOMIC_FORCEON)
-        {
-            UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
-        }
+        UCSR1B &= ~(1 << RXCIE1) & ~(1 << RXEN1) & ~(1 << TXEN1) & ~(1 << UDRIE1);
 
         // Setup UART1 pins manually.
         RX_DDR &= ~(1 << RX_P); // RX1 is input
-        TX_DDR |= (1 << TX_P); // TX1 is output
+        TX_DDR |= (1 << TX_P);  // TX1 is output
         RX_PORT |= (1 << RX_P); // RX1 internal pullup resistor enabled
-        TX_PORT |= (1 << TX_P); // TX1 idling at logic high
+        TX_PORT |= (1 << TX_P); // TX1 internal pullup resistor enabled
 
         // Prepare variables.
         uint8_t IDbyteTX = _serialTxBuffer[0];
@@ -392,12 +383,19 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         bool currentRxBit = false;
         bool currentTxBit = false;
         bool error = false;
+        bool timeout = false;
+        uint32_t timeoutStart = millis();
 
-        while (!_transmitAllowed); // wait until 256 microseconds elapses after bus goes idle to begin message transmission
+        // Wait for bus-idle, then wait some more until 256 microseconds elapses after that to begin message transmission.
+        while (!_transmitAllowed && !timeout)
+        {
+            if ((uint32_t)(millis() - timeoutStart) >= 1000) timeout = true;
+        }
+
+        if (timeout) return 2;
 
         _transmitAllowed = false; // clear flag
-        currentRxBit = (RX_PIN & (1 << RX_P)); // check if start bit has appeared
-        if (!currentRxBit) error = true; // it's supposed to be logic high, another module is ahead of us, bus arbitration lost
+        if (!(RX_PIN & (1 << RX_P))) error = true; // check if start bit has appeared, if so: bus arbitration lost
 
         // Start bit-banging RX1/TX1 pins.
         // Arbitration detection is done by checking if written bit is the same as the received bit.
@@ -434,10 +432,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
         _serialRxBufferPos = 1;
 
         // Re-enable UART receiver and transmitter and receive complete interrupt.
-        ATOMIC_BLOCK(ATOMIC_FORCEON)
-        {
-            UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
-        }
+        UCSR1B |= (1 << RXCIE1) | (1 << RXEN1) | (1 << TXEN1);
 
         if (IDbyteRX == IDbyteTX) // CCD-bus arbitration won
         {
@@ -448,10 +443,7 @@ uint8_t CCDLibrary::write(uint8_t *buffer, uint8_t bufferLength)
             attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
 
             // Enable UDRE interrupt to continue automatic message transmission.
-            ATOMIC_BLOCK(ATOMIC_FORCEON)
-            {
-                UCSR1B |= (1 << UDRIE1);
-            }
+            UCSR1B |= (1 << UDRIE1);
 
             return 0;
         }

@@ -92,9 +92,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
 
         // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
-        // Start bus-idle timer.
         busIdleTimerInit();
-        busIdleTimerStart();
     }
 }
 
@@ -347,7 +345,27 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     _serialTxBufferPos = 0; // reset buffer position
     _serialTxLength = bufferLength; // save message length
 
-    if (_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
+    bool timeout = false;
+    uint32_t timeoutStart = millis();
+
+    // Warning: no bus-arbitration detector algorithm is used!
+    // Wait for bus-idle to begin message transmission.
+    while (!_busIdle && !timeout)
+    {
+        if ((uint32_t)(millis() - timeoutStart) >= 1000) timeout = true;
+    }
+
+    if (timeout) return 2;
+
+    // Insert 256 microseconds delay here. Since loading the UART TX buffer takes some time let's wait a bit less.
+    _delay_us(128.0);
+
+    // Enable UDRE interrupt to begin message transmission.
+    UCSR1B |= (1 << UDRIE1);
+
+    return 0;
+
+/*     if (!_dedicatedTransceiver) // CDP68HC68S1 handles arbitration detection internally
     {
         bool timeout = false;
         uint32_t timeoutStart = millis();
@@ -395,7 +413,9 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
         if (timeout) return 2;
 
         _transmitAllowed = false; // clear flag
+
         if (!(RX_PIN & (1 << RX_P))) error = true; // check if start bit has appeared, if so: bus arbitration lost
+        if (!error) cbi(TX_PORT, TX_P); // send start bit (0) immediately
 
         // Start bit-banging RX1/TX1 pins.
         // Arbitration detection is done by checking if written bit is the same as the received bit.
@@ -403,8 +423,8 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
         {
             if (!error) // ongoing arbitration
             {
-                if (i == 0) currentTxBit = 0; // 1 start bit
-                else if (i == 9) currentTxBit = 1; // 1 stop bit
+                if (i == 0) currentTxBit = 0; // start bit
+                else if (i == 9) currentTxBit = 1; // stop bit
                 else currentTxBit = IDbyteTX & (1 << (i - 1)); // 8 data bits
 
                 if (currentTxBit) sbi(TX_PORT, TX_P);
@@ -416,15 +436,16 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
             }
 
             _delay_us(64.0); // wait 0.5 bit time
+
             currentRxBit = (RX_PIN & (1 << RX_P)); // read RX pin state
+            if (currentRxBit != currentTxBit) error = true;// error: bit mismatch, bus arbitration lost
 
             if ((i != 0) && (i != 9)) // skip start and stop bits
             {
                 if (currentRxBit) sbi(IDbyteRX, (i - 1)); // save bit
             }
 
-            if (currentRxBit != currentTxBit) error = true;// error: bit mismatch, bus arbitration lost
-            _delay_us(64.0); // wait another 0.5 bit time to finish this bit
+            _delay_us(64.0); // wait 0.5 bit time
         }
 
         // Save received ID byte.
@@ -458,7 +479,7 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
 
             return 3;
         }
-    }
+    } */
 }
 
 void CCDLibrary::processMessage()

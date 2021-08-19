@@ -98,7 +98,7 @@ class CCDLibrary
         bool _calculateTxChecksum;
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
-        void serialInit(float baudrate);
+        void serialInit();
         void transmitDelayTimerInit();
         void transmitDelayTimerStart();
         void transmitDelayTimerStop();

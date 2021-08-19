@@ -67,7 +67,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _busIdle = true;
     _transmitAllowed = true;
 
-    serialInit(_baudrate);
+    serialInit();
     transmitDelayTimerInit();
 
     if (_dedicatedTransceiver)
@@ -96,7 +96,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     }
 }
 
-void CCDLibrary::serialInit(float baudrate)
+void CCDLibrary::serialInit()
 {
     ATOMIC_BLOCK(ATOMIC_FORCEON)
     {
@@ -106,7 +106,7 @@ void CCDLibrary::serialInit(float baudrate)
         _lastSerialError = 0;
 
         // Set baud rate.
-        uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * baudrate)) - 1.0);
+        uint16_t ubrr = (uint16_t)(((float)F_CPU / (16.0 * _baudrate)) - 1.0);
         UBRR1H = (ubrr >> 8) & 0x0F;
         UBRR1L = ubrr & 0xFF;
 
@@ -358,7 +358,7 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     if (timeout) return 2;
 
     // Insert 256 microseconds delay here. Since loading the UART TX buffer takes some time let's wait a bit less.
-    _delay_us(128.0);
+    _delay_us(64.0);
 
     // Enable UDRE interrupt to begin message transmission.
     UCSR1B |= (1 << UDRIE1);

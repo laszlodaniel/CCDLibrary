@@ -101,7 +101,7 @@ void loop()
 {
     currentMillis = millis(); // check current time
 
-    if ((currentMillis - lastMillis) >= writeInterval) // check if writeInterval time has elapsed
+    if ((uint32_t)(currentMillis - lastMillis) >= writeInterval) // check if writeInterval time has elapsed
     {
         lastMillis = currentMillis; // save current time
 

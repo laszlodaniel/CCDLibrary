@@ -468,13 +468,12 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     } */
 }
 
-CCDLibrary* CCDLibrary::listenAll()
+void CCDLibrary::listenAll()
 {
     memset(_ignoreList, 0, sizeof(_ignoreList));
-    return this;
 }
 
-CCDLibrary* CCDLibrary::listen(uint8_t* ids)
+void CCDLibrary::listen(uint8_t* ids)
 {
     ignoreAll();
 
@@ -483,17 +482,14 @@ CCDLibrary* CCDLibrary::listen(uint8_t* ids)
         _ignoreList[*ids] = 0; // clear ignore flag
         ids++;
     }
-
-    return this;
 }
 
-CCDLibrary* CCDLibrary::ignoreAll()
+void CCDLibrary::ignoreAll()
 {
     memset(_ignoreList, 1, sizeof(_ignoreList));
-    return this;
 }
 
-CCDLibrary* CCDLibrary::ignore(uint8_t* ids)
+void CCDLibrary::ignore(uint8_t* ids)
 {
     listenAll();
 
@@ -502,8 +498,6 @@ CCDLibrary* CCDLibrary::ignore(uint8_t* ids)
         _ignoreList[*ids] = 1; // set ignore flag
         ids++;
     }
-
-    return this;
 }
 
 void CCDLibrary::processMessage()
@@ -558,13 +552,12 @@ void CCDLibrary::handleMessagesInternal(uint8_t* message, uint8_t messageLength)
     }
 }
 
-CCDLibrary* CCDLibrary::onMessageReceived(onMessageReceivedHandler msgHandler)
+void CCDLibrary::onMessageReceived(onMessageReceivedHandler msgHandler)
 {
     __msgHandler = msgHandler;
-    return this;
 }
 
-CCD_Errors CCDLibrary::handleErrorsInternal(CCD_Operations op, CCD_Errors err)
+void CCDLibrary::handleErrorsInternal(CCD_Operations op, CCD_Errors err)
 {
     if (err != CCD_OK)
     {
@@ -575,12 +568,9 @@ CCD_Errors CCDLibrary::handleErrorsInternal(CCD_Operations op, CCD_Errors err)
             errHandler(op, err); // raise event
         }
     }
-
-    return err;
 }
 
-CCDLibrary* CCDLibrary::onError(onErrorHandler errHandler)
+void CCDLibrary::onError(onErrorHandler errHandler)
 {
     __errHandler = errHandler;
-    return this;
 }

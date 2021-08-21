@@ -88,19 +88,19 @@ class CCDLibrary
         CCDLibrary();
         void begin(float baudrate = 7812.5, bool dedicatedTransceiver = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
-        CCDLibrary* listenAll();
-        CCDLibrary* listen(uint8_t* ids);
-        CCDLibrary* ignoreAll();
-        CCDLibrary* ignore(uint8_t* ids);
+        void onMessageReceived(onMessageReceivedHandler msgHandler);
+        void onError(onErrorHandler errHandler);
+        void listenAll();
+        void listen(uint8_t* ids);
+        void ignoreAll();
+        void ignore(uint8_t* ids);
         void receiveByte();
         void transmitByte();
         void transmitDelayHandler();
         void timer1Handler();
         void busIdleInterruptHandler();
         void activeByteInterruptHandler();
-        CCDLibrary* onMessageReceived(onMessageReceivedHandler msgHandler);
-        CCDLibrary* onError(onErrorHandler errHandler);
-        
+
     private:
         uint8_t _message[16];
         uint8_t _messageLength;
@@ -131,9 +131,8 @@ class CCDLibrary
         void busIdleTimerStart();
         void busIdleTimerStop();
         void processMessage();
-        uint8_t* getBit(uint8_t id, uint8_t *pBit);
         void handleMessagesInternal(uint8_t* message, uint8_t messageLength);
-        CCD_Errors handleErrorsInternal(CCD_Operations op, CCD_Errors err);
+        void handleErrorsInternal(CCD_Operations op, CCD_Errors err);
 };
 
 extern CCDLibrary CCD;

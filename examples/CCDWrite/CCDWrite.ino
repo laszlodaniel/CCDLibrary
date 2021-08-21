@@ -106,7 +106,7 @@ void loop()
         lastMillis = currentMillis; // save current time
 
         if (counter == 0) CCD.write(engineSpeed, sizeof(engineSpeed)); // send message to the CCD-bus
-        if (counter == 1) CCD.write(vehicleSpeed, sizeof(vehicleSpeed)); // send message to the CCD-bus
+        else if (counter == 1) CCD.write(vehicleSpeed, sizeof(vehicleSpeed)); // send message to the CCD-bus
 
         counter++;
 

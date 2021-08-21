@@ -16,7 +16,7 @@
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
  * Example: CCD-bus messages are displayed in the Arduino serial monitor 
- * that start with either the byte B2 or F2 (diagnostic request/response message). 
+ * that start with either the ID-byte CE or EE (odometer or tripmeter value). 
  * Any number and kind of bytes can be filtered.
  */
 
@@ -24,40 +24,74 @@
 
 #define TBEN 4 // CCDPCIBusTransceiver has programmable CCD-bus termination and bias (TBEN pin instead of jumpers)
 
-uint8_t lastMessage[16];
-uint8_t lastMessageLength = 0;
-uint8_t messageIDbyte = 0;
+uint8_t messageFilter[] = { 0xCE, 0xEE }; // ID-bytes to filter
+
+void CCDMessageReceived(uint8_t* message, uint8_t messageLength)
+{
+    for (uint8_t i = 0; i < messageLength; i++)
+    {
+        if (message[i] < 16) Serial.print("0"); // print leading zero
+        Serial.print(message[i], HEX); // print message byte in hexadecimal format on the serial monitor
+        Serial.print(" "); // insert whitespace between bytes
+    }
+
+    Serial.println(); // add new line
+}
+
+void CCDHandleError(CCD_Operations op, CCD_Errors err)
+{
+    if (err == CCD_OK) return;
+
+    String s = op == CCD_Read ? "READ " : "WRITE ";
+
+    switch (err)
+    {
+        case CCD_ERR_BUS_IS_BUSY:
+        {
+            Serial.println(s + "CCD_ERR_BUS_IS_BUSY");
+            break;
+        }
+        case CCD_ERR_BUS_ERROR:
+        {
+            Serial.println(s + "CCD_ERR_BUS_ERROR");
+            break;
+        }
+        case CCD_ERR_ARBITRATION_LOST:
+        {
+            Serial.println(s + "CCD_ERR_ARBITRATION_LOST");
+            break;
+        }
+        case CCD_ERR_CHECKSUM:
+        {
+            Serial.println(s + "CCD_ERR_CHECKSUM");
+            break;
+        }
+        default: // unknown error
+        {
+            Serial.println(s + "ERR: " + String(err, HEX));
+            break;
+        }
+    }
+}
 
 void setup()
 {
     Serial.begin(250000);
+
     pinMode(TBEN, OUTPUT);
     digitalWrite(TBEN, LOW); // LOW: enable, HIGH: disable CCD-bus termination and bias
-    CCD.begin(); // CDP68HC68S1
-    //CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+
+    CCD.onMessageReceived(CCDMessageReceived); // callback function when CCD-bus message is received
+    CCD.onError(CCDHandleError); // callback function when error occurs
+    //CCD.begin(); // CDP68HC68S1
+    CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+    CCD.listen(messageFilter); // display selected messages only
+    //CCD.ignore(messageFilter); // ignore selected messages
+    //CCD.listenAll(); // disable message filtering
+    //CCD.ignoreAll(); // don't let any message through
 }
 
 void loop()
 {
-    if (CCD.available()) // if there's a new unread message in the buffer
-    {
-        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
-
-        if (lastMessageLength > 0) // valid message length is always greater than 0
-        {
-            messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
-
-            if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
-            {
-                for (uint8_t i = 0; i < lastMessageLength; i++)
-                {
-                    if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
-                    Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
-                    Serial.print(" "); // insert whitespace between bytes
-                }
-
-                Serial.println(); // add new line
-            }
-        }
-    }
+    // Empty.
 }

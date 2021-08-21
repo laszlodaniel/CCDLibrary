@@ -15,7 +15,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- * Example: a diagnostic request message (B2) is sent on the CCD-bus. 
+ * Example: a diagnostic request message (B2) is sent to the CCD-bus. 
  * A diagnostic response message (F2) is expected from the target module. 
  * CCD-bus messages are displayed in the Arduino serial monitor 
  * and are filtered by these two ID bytes. 
@@ -48,76 +48,77 @@ uint32_t currentMillis = 0; // ms
 uint32_t lastMillis = 0; // ms
 uint16_t writeInterval = 500; // ms
 uint8_t BCMROMValueRequest[6] = { 0xB2, 0x20, 0x22, 0x00, 0x00, 0x00 }; // checksum intentionally set as zero
-uint8_t lastMessage[16];
-uint8_t lastMessageLength = 0;
-uint8_t messageIDbyte = 0;
+uint8_t messageFilter[] = { 0xB2, 0xF2 }; // ID-bytes to filter
+
+void CCDMessageReceived(uint8_t* message, uint8_t messageLength)
+{
+    for (uint8_t i = 0; i < messageLength; i++)
+    {
+        if (message[i] < 16) Serial.print("0"); // print leading zero
+        Serial.print(message[i], HEX); // print message byte in hexadecimal format on the serial monitor
+        Serial.print(" "); // insert whitespace between bytes
+    }
+
+    Serial.println(); // add new line
+}
+
+void CCDHandleError(CCD_Operations op, CCD_Errors err)
+{
+    if (err == CCD_OK) return;
+
+    String s = op == CCD_Read ? "READ " : "WRITE ";
+
+    switch (err)
+    {
+        case CCD_ERR_BUS_IS_BUSY:
+        {
+            Serial.println(s + "CCD_ERR_BUS_IS_BUSY");
+            break;
+        }
+        case CCD_ERR_BUS_ERROR:
+        {
+            Serial.println(s + "CCD_ERR_BUS_ERROR");
+            break;
+        }
+        case CCD_ERR_ARBITRATION_LOST:
+        {
+            Serial.println(s + "CCD_ERR_ARBITRATION_LOST");
+            break;
+        }
+        case CCD_ERR_CHECKSUM:
+        {
+            Serial.println(s + "CCD_ERR_CHECKSUM");
+            break;
+        }
+        default: // unknown error
+        {
+            Serial.println(s + "ERR: " + String(err, HEX));
+            break;
+        }
+    }
+}
 
 void setup()
 {
     Serial.begin(250000);
+
     pinMode(TBEN, OUTPUT);
     digitalWrite(TBEN, LOW); // LOW: enable, HIGH: disable CCD-bus termination and bias
-    CCD.begin(); // CDP68HC68S1
-    //CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+
+    CCD.onMessageReceived(CCDMessageReceived); // callback function when CCD-bus message is received
+    CCD.onError(CCDHandleError); // callback function when error occurs
+    //CCD.begin(); // CDP68HC68S1
+    CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+    CCD.listen(messageFilter); // display selected messages only
 }
 
 void loop()
 {
     currentMillis = millis(); // check current time
 
-    if ((currentMillis - lastMillis) >= writeInterval) // check if writeInterval time has elapsed
+    if ((uint32_t)(currentMillis - lastMillis) >= writeInterval) // check if writeInterval time has elapsed
     {
         lastMillis = currentMillis; // save current time
-
-        uint8_t result = CCD.write(BCMROMValueRequest, 6); // write 6 bytes from the BCMROMValueRequest array on the CCD-bus
-
-        if (result > 0) // check if error occured during message transmission (0 = OK)
-        {
-            switch (result)
-            {
-                case 1:
-                {
-                    Serial.println("Error: zero message length");
-                    break;
-                }
-                case 2:
-                {
-                    Serial.println("Error: timeout");
-                    break;
-                }
-                case 3:
-                {
-                    Serial.println("Error: data collision");
-                    break;
-                }
-                default:
-                {
-                    Serial.println("Error: unknown");
-                    break;
-                }
-            }
-        }
-    }
-
-    if (CCD.available()) // if there's a new unread message in the buffer
-    {
-        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
-
-        if (lastMessageLength > 0) // valid message length is always greater than 0
-        {
-            messageIDbyte = lastMessage[0]; // save first byte of the message in a separate variable
-
-            if ((messageIDbyte == 0xB2) || (messageIDbyte == 0xF2)) // diagnostic request/response message filter
-            {
-                for (uint8_t i = 0; i < lastMessageLength; i++)
-                {
-                    if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
-                    Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
-                    Serial.print(" "); // insert whitespace between bytes
-                }
-
-                Serial.println(); // add new line
-            }
-        }
+        CCD.write(BCMROMValueRequest, 6); // write request message
     }
 }

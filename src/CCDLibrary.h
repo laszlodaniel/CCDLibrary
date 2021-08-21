@@ -64,24 +64,46 @@
 #define cbi(reg, bit) reg &= ~(1 << bit)
 #define ibi(reg, bit) reg ^=  (1 << bit)
 
+enum CCD_Operations
+{
+    CCD_Read,
+    CCD_Write
+};
+
+enum CCD_Errors
+{
+    CCD_OK                        = 0x00,
+    CCD_ERR_BUS_IS_BUSY           = 0x81,
+    CCD_ERR_BUS_ERROR             = 0x82,
+    CCD_ERR_ARBITRATION_LOST      = 0x87,
+    CCD_ERR_CHECKSUM              = 0x90
+};
+
+typedef void (*onMessageReceivedHandler)(uint8_t* message, uint8_t messageLength);
+typedef void (*onErrorHandler)(CCD_Operations op, CCD_Errors err);
+
 class CCDLibrary
 {
     public:
         CCDLibrary();
         void begin(float baudrate = 7812.5, bool dedicatedTransceiver = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
-        bool available();
-        uint8_t read(uint8_t *target);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
-        void handle_USART1_RX_vect();
-        void handle_USART1_UDRE_vect();
-        void handle_TIMER3_COMPA_vect();
-        void handle_TIMER1_COMPA_vect();
+        CCDLibrary* listenAll();
+        CCDLibrary* listen(uint8_t* ids);
+        CCDLibrary* ignoreAll();
+        CCDLibrary* ignore(uint8_t* ids);
+        void receiveByte();
+        void transmitByte();
+        void transmitDelayHandler();
+        void timer1Handler();
         void busIdleInterruptHandler();
         void activeByteInterruptHandler();
+        CCDLibrary* onMessageReceived(onMessageReceivedHandler msgHandler);
+        CCDLibrary* onError(onErrorHandler errHandler);
         
     private:
-        volatile uint8_t _message[16];
-        volatile uint8_t _messageLength;
+        uint8_t _message[16];
+        uint8_t _messageLength;
         volatile uint8_t _serialRxBuffer[16];
         volatile uint8_t _serialRxBufferPos;
         volatile uint8_t _serialTxBuffer[16];
@@ -90,7 +112,6 @@ class CCDLibrary
         volatile uint8_t _lastSerialError;
         volatile bool _busIdle;
         volatile bool _transmitAllowed;
-        volatile bool _lastMessageRead;
         float _baudrate;
         bool _dedicatedTransceiver;
         uint8_t _busIdleBits;
@@ -98,6 +119,9 @@ class CCDLibrary
         bool _calculateTxChecksum;
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
+        uint8_t  _ignoreList[256];
+        volatile onMessageReceivedHandler __msgHandler;
+        volatile onErrorHandler __errHandler;
         void serialInit();
         void transmitDelayTimerInit();
         void transmitDelayTimerStart();
@@ -107,6 +131,9 @@ class CCDLibrary
         void busIdleTimerStart();
         void busIdleTimerStop();
         void processMessage();
+        uint8_t* getBit(uint8_t id, uint8_t *pBit);
+        void handleMessagesInternal(uint8_t* message, uint8_t messageLength);
+        CCD_Errors handleErrorsInternal(CCD_Operations op, CCD_Errors err);
 };
 
 extern CCDLibrary CCD;

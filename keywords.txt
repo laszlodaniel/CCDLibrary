@@ -1,4 +1,8 @@
 #######################################
+# Syntax Coloring Map for CCDLibrary
+#######################################
+
+#######################################
 # Data types (KEYWORD1)
 #######################################
 CCDLibrary	KEYWORD1
@@ -8,10 +12,23 @@ CCD	KEYWORD1
 # Methods and Functions (KEYWORD2)
 #######################################
 begin	KEYWORD2
-available	KEYWORD2
-read	KEYWORD2
 write	KEYWORD2
+listenAll	KEYWORD2
+listen	KEYWORD2
+ignoreAll	KEYWORD2
+ignore	KEYWORD2
+onMessageReceived	KEYWORD2
+onError	KEYWORD2
 
 #######################################
 # Literals (LITERAL1)
 #######################################
+CCD_Errors	LITERAL1
+CCD_OK	LITERAL1
+CCD_ERR_BUS_IS_BUSY	LITERAL1
+CCD_ERR_BUS_ERROR	LITERAL1
+CCD_ERR_ARBITRATION_LOST	LITERAL1
+CCD_ERR_CHECKSUM	LITERAL1
+CCD_Operations	LITERAL1
+CCD_Read	LITERAL1
+CCD_Write	LITERAL1

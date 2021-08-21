@@ -15,41 +15,75 @@
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see <http://www.gnu.org/licenses/>.
  *
- * Example: CCD-bus messages are displayed in the Arduino serial monitor.
+ * Example: CCD-bus messages are displayed on the Arduino serial monitor.
  */
 
 #include <CCDLibrary.h>
 
 #define TBEN 4 // CCDPCIBusTransceiver has programmable CCD-bus termination and bias (TBEN pin instead of jumpers)
 
-uint8_t lastMessage[16];
-uint8_t lastMessageLength = 0;
+void CCDMessageReceived(uint8_t* message, uint8_t messageLength)
+{
+    for (uint8_t i = 0; i < messageLength; i++)
+    {
+        if (message[i] < 16) Serial.print("0"); // print leading zero
+        Serial.print(message[i], HEX); // print message byte in hexadecimal format on the serial monitor
+        Serial.print(" "); // insert whitespace between bytes
+    }
+
+    Serial.println(); // add new line
+}
+
+void CCDHandleError(CCD_Operations op, CCD_Errors err)
+{
+    if (err == CCD_OK) return;
+
+    String s = op == CCD_Read ? "READ " : "WRITE ";
+
+    switch (err)
+    {
+        case CCD_ERR_BUS_IS_BUSY:
+        {
+            Serial.println(s + "CCD_ERR_BUS_IS_BUSY");
+            break;
+        }
+        case CCD_ERR_BUS_ERROR:
+        {
+            Serial.println(s + "CCD_ERR_BUS_ERROR");
+            break;
+        }
+        case CCD_ERR_ARBITRATION_LOST:
+        {
+            Serial.println(s + "CCD_ERR_ARBITRATION_LOST");
+            break;
+        }
+        case CCD_ERR_CHECKSUM:
+        {
+            Serial.println(s + "CCD_ERR_CHECKSUM");
+            break;
+        }
+        default: // unknown error
+        {
+            Serial.println(s + "ERR: " + String(err, HEX));
+            break;
+        }
+    }
+}
 
 void setup()
 {
     Serial.begin(250000);
+
     pinMode(TBEN, OUTPUT);
     digitalWrite(TBEN, LOW); // LOW: enable, HIGH: disable CCD-bus termination and bias
-    CCD.begin(); // CDP68HC68S1
-    //CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+
+    CCD.onMessageReceived(CCDMessageReceived); // callback function when CCD-bus message is received
+    CCD.onError(CCDHandleError); // callback function when error occurs
+    //CCD.begin(); // CDP68HC68S1
+    CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }
 
 void loop()
 {
-    if (CCD.available()) // if there's a new unread message in the buffer
-    {
-        lastMessageLength = CCD.read(lastMessage); // read message in the lastMessage array and save its length in the lastMessageLength variable
-
-        if (lastMessageLength > 0) // valid message length is always greater than 0
-        {
-            for (uint8_t i = 0; i < lastMessageLength; i++)
-            {
-                if (lastMessage[i] < 16) Serial.print("0"); // print leading zero
-                Serial.print(lastMessage[i], HEX); // print message byte in hexadecimal format on the serial monitor
-                Serial.print(" "); // insert whitespace between bytes
-            }
-
-            Serial.println(); // add new line
-        }
-    }
+    // Empty.
 }

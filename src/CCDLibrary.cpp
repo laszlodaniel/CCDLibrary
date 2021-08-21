@@ -63,12 +63,12 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
     _verifyRxChecksum = verifyRxChecksum;
     _calculateTxChecksum = calculateTxChecksum;
     _messageLength = 0;
-    _lastMessageRead = true;
     _busIdle = true;
     _transmitAllowed = true;
 
     serialInit();
     transmitDelayTimerInit();
+    listenAll();
 
     if (_dedicatedTransceiver)
     {
@@ -120,10 +120,10 @@ void CCDLibrary::serialInit()
 
 ISR(USART1_RX_vect)
 {
-    CCD.handle_USART1_RX_vect();
+    CCD.receiveByte();
 }
 
-void CCDLibrary::handle_USART1_RX_vect()
+void CCDLibrary::receiveByte()
 {
     // Read UART status register and UART data register.
     uint8_t usr  = UCSR1A;
@@ -152,10 +152,10 @@ void CCDLibrary::handle_USART1_RX_vect()
 
 ISR(USART1_UDRE_vect)
 {
-    CCD.handle_USART1_UDRE_vect();
+    CCD.transmitByte();
 }
 
-void CCDLibrary::handle_USART1_UDRE_vect()
+void CCDLibrary::transmitByte()
 {
     if (_serialTxBufferPos < _serialTxLength)
     {
@@ -202,10 +202,10 @@ void CCDLibrary::transmitDelayTimerStop()
 
 ISR(TIMER3_COMPA_vect)
 {
-    CCD.handle_TIMER3_COMPA_vect();
+    CCD.transmitDelayHandler();
 }
 
-void CCDLibrary::handle_TIMER3_COMPA_vect()
+void CCDLibrary::transmitDelayHandler()
 {
     transmitDelayTimerStop(); // stop transmit delay timer
     _transmitAllowed = true; // set flag
@@ -295,30 +295,16 @@ void CCDLibrary::activeByteInterruptHandler()
 
 ISR(TIMER1_COMPA_vect)
 {
-    CCD.handle_TIMER1_COMPA_vect();
+    CCD.timer1Handler();
 }
 
-void CCDLibrary::handle_TIMER1_COMPA_vect()
+void CCDLibrary::timer1Handler()
 {
     busIdleTimerStop(); // stop bus idle timer
     _busIdle = true; // set flag
     transmitDelayTimerStart(); // start counting 256 microseconds for the next message transmission opportunity
     attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
     processMessage(); // process received message, if any
-}
-
-bool CCDLibrary::available()
-{
-    return !_lastMessageRead;
-}
-
-uint8_t CCDLibrary::read(uint8_t* target)
-{
-    // Copy last message to target buffer.
-    for (uint8_t i = 0; i < _messageLength; i++) target[i] = _message[i];
-
-    _lastMessageRead = true; // set flag
-    return _messageLength;
 }
 
 uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
@@ -482,40 +468,119 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     } */
 }
 
+CCDLibrary* CCDLibrary::listenAll()
+{
+    memset(_ignoreList, 0, sizeof(_ignoreList));
+    return this;
+}
+
+CCDLibrary* CCDLibrary::listen(uint8_t* ids)
+{
+    ignoreAll();
+
+    while (*ids)
+    {
+        _ignoreList[*ids] = 0; // clear ignore flag
+        ids++;
+    }
+
+    return this;
+}
+
+CCDLibrary* CCDLibrary::ignoreAll()
+{
+    memset(_ignoreList, 1, sizeof(_ignoreList));
+    return this;
+}
+
+CCDLibrary* CCDLibrary::ignore(uint8_t* ids)
+{
+    listenAll();
+
+    while (*ids)
+    {
+        _ignoreList[*ids] = 1; // set ignore flag
+        ids++;
+    }
+
+    return this;
+}
+
 void CCDLibrary::processMessage()
 {
-    // Check if there is something in the buffer.
     if (_serialRxBufferPos > 0)
     {
-        if (_verifyRxChecksum && (_serialRxBufferPos > 1)) // verify checksum
+        if (_ignoreList[_serialRxBuffer[0]] == 0)
         {
-            uint8_t checksum = 0;
-            uint8_t checksumLocation = _serialRxBufferPos - 1;
-            for (uint8_t i = 0; i < checksumLocation ; i++) checksum += _serialRxBuffer[i];
-
-            if (checksum == _serialRxBuffer[checksumLocation])
+            if (_verifyRxChecksum && (_serialRxBufferPos > 1)) // verify checksum
             {
-                // Copy bytes from serial receive buffer to message buffer.
+                uint8_t checksum = 0;
+                uint8_t checksumLocation = _serialRxBufferPos - 1;
+                for (uint8_t i = 0; i < checksumLocation ; i++) checksum += _serialRxBuffer[i];
+
+                if (checksum == _serialRxBuffer[checksumLocation])
+                {
+                    for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
+
+                    _messageLength = _serialRxBufferPos;
+                    _serialRxBufferPos = 0;
+                    handleMessagesInternal(_message, _messageLength);
+                }
+                else
+                {
+                    _serialRxBufferPos = 0;
+                    handleErrorsInternal(CCD_Read, CCD_ERR_CHECKSUM);
+                }
+            }
+            else // ignore checksum
+            {
                 for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
 
                 _messageLength = _serialRxBufferPos;
                 _serialRxBufferPos = 0;
-            }
-            else
-            {
-                _messageLength = 0; // let invalid messages have zero length
-                _serialRxBufferPos = 0; // ignore this message and reset buffer
+                handleMessagesInternal(_message, _messageLength);
             }
         }
-        else // checksum calculation is not applicable
+        else
         {
-            // Copy bytes from serial receive buffer to message buffer.
-            for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
-
-            _messageLength = _serialRxBufferPos;
             _serialRxBufferPos = 0;
         }
-
-        _lastMessageRead = false; // clear flag
     }
+}
+
+void CCDLibrary::handleMessagesInternal(uint8_t* message, uint8_t messageLength)
+{
+    onMessageReceivedHandler msgHandler = __msgHandler;
+
+    if (msgHandler)
+    {
+        msgHandler(message, messageLength); // raise event
+    }
+}
+
+CCDLibrary* CCDLibrary::onMessageReceived(onMessageReceivedHandler msgHandler)
+{
+    __msgHandler = msgHandler;
+    return this;
+}
+
+CCD_Errors CCDLibrary::handleErrorsInternal(CCD_Operations op, CCD_Errors err)
+{
+    if (err != CCD_OK)
+    {
+        onErrorHandler errHandler = __errHandler;
+
+        if (errHandler)
+        {
+            errHandler(op, err); // raise event
+        }
+    }
+
+    return err;
+}
+
+CCDLibrary* CCDLibrary::onError(onErrorHandler errHandler)
+{
+    __errHandler = errHandler;
+    return this;
 }

@@ -542,35 +542,35 @@ void CCDLibrary::processMessage()
     }
 }
 
-void CCDLibrary::handleMessagesInternal(uint8_t* message, uint8_t messageLength)
+void CCDLibrary::handleMessagesInternal(uint8_t* _message, uint8_t _messageLength)
 {
-    onMessageReceivedHandler msgHandler = __msgHandler;
+    onMessageReceivedHandler msgHandler = _msgHandler;
 
     if (msgHandler)
     {
-        msgHandler(message, messageLength); // raise event
+        msgHandler(_message, _messageLength); // raise event
     }
 }
 
 void CCDLibrary::onMessageReceived(onMessageReceivedHandler msgHandler)
 {
-    __msgHandler = msgHandler;
+    _msgHandler = msgHandler;
 }
 
-void CCDLibrary::handleErrorsInternal(CCD_Operations op, CCD_Errors err)
+void CCDLibrary::handleErrorsInternal(CCD_Operations _op, CCD_Errors _err)
 {
-    if (err != CCD_OK)
+    if (_err != CCD_OK)
     {
-        onErrorHandler errHandler = __errHandler;
+        onErrorHandler errHandler = _errHandler;
 
         if (errHandler)
         {
-            errHandler(op, err); // raise event
+            errHandler(_op, _err); // raise event
         }
     }
 }
 
 void CCDLibrary::onError(onErrorHandler errHandler)
 {
-    __errHandler = errHandler;
+    _errHandler = errHandler;
 }

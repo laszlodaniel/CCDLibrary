@@ -120,8 +120,8 @@ class CCDLibrary
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
         uint8_t  _ignoreList[256];
-        volatile onMessageReceivedHandler __msgHandler;
-        volatile onErrorHandler __errHandler;
+        volatile onMessageReceivedHandler _msgHandler;
+        volatile onErrorHandler _errHandler;
         void serialInit();
         void transmitDelayTimerInit();
         void transmitDelayTimerStart();
@@ -131,8 +131,8 @@ class CCDLibrary
         void busIdleTimerStart();
         void busIdleTimerStop();
         void processMessage();
-        void handleMessagesInternal(uint8_t* message, uint8_t messageLength);
-        void handleErrorsInternal(CCD_Operations op, CCD_Errors err);
+        void handleMessagesInternal(uint8_t* _message, uint8_t _messageLength);
+        void handleErrorsInternal(CCD_Operations _op, CCD_Errors _err);
 };
 
 extern CCDLibrary CCD;

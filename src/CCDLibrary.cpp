@@ -24,7 +24,12 @@ CCDLibrary CCD;
 
 CCDLibrary::CCDLibrary()
 {
-    // Empty.
+    // Empty class constructor.
+}
+
+CCDLibrary::~CCDLibrary()
+{
+    // Empty class destructor.
 }
 
 static void isrIdle()
@@ -544,7 +549,7 @@ void CCDLibrary::processMessage()
 
 void CCDLibrary::handleMessagesInternal(uint8_t* _message, uint8_t _messageLength)
 {
-    onMessageReceivedHandler msgHandler = _msgHandler;
+    onCCDMessageReceivedHandler msgHandler = _msgHandler;
 
     if (msgHandler)
     {
@@ -552,7 +557,7 @@ void CCDLibrary::handleMessagesInternal(uint8_t* _message, uint8_t _messageLengt
     }
 }
 
-void CCDLibrary::onMessageReceived(onMessageReceivedHandler msgHandler)
+void CCDLibrary::onMessageReceived(onCCDMessageReceivedHandler msgHandler)
 {
     _msgHandler = msgHandler;
 }
@@ -561,7 +566,7 @@ void CCDLibrary::handleErrorsInternal(CCD_Operations _op, CCD_Errors _err)
 {
     if (_err != CCD_OK)
     {
-        onErrorHandler errHandler = _errHandler;
+        onCCDErrorHandler errHandler = _errHandler;
 
         if (errHandler)
         {
@@ -570,7 +575,7 @@ void CCDLibrary::handleErrorsInternal(CCD_Operations _op, CCD_Errors _err)
     }
 }
 
-void CCDLibrary::onError(onErrorHandler errHandler)
+void CCDLibrary::onError(onCCDErrorHandler errHandler)
 {
     _errHandler = errHandler;
 }

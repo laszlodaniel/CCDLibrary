@@ -79,17 +79,16 @@ enum CCD_Errors
     CCD_ERR_CHECKSUM              = 0x90
 };
 
-typedef void (*onMessageReceivedHandler)(uint8_t* message, uint8_t messageLength);
-typedef void (*onErrorHandler)(CCD_Operations op, CCD_Errors err);
+typedef void (*onCCDMessageReceivedHandler)(uint8_t* message, uint8_t messageLength);
+typedef void (*onCCDErrorHandler)(CCD_Operations op, CCD_Errors err);
 
 class CCDLibrary
 {
     public:
         CCDLibrary();
+        ~CCDLibrary();
         void begin(float baudrate = 7812.5, bool dedicatedTransceiver = 1, uint8_t busIdleBits = 10, bool verifyRxChecksum = 1, bool calculateTxChecksum = 1);
         uint8_t write(uint8_t *buffer, uint8_t bufferLength);
-        void onMessageReceived(onMessageReceivedHandler msgHandler);
-        void onError(onErrorHandler errHandler);
         void listenAll();
         void listen(uint8_t* ids);
         void ignoreAll();
@@ -100,6 +99,8 @@ class CCDLibrary
         void timer1Handler();
         void busIdleInterruptHandler();
         void activeByteInterruptHandler();
+        void onMessageReceived(onCCDMessageReceivedHandler msgHandler);
+        void onError(onCCDErrorHandler errHandler);
 
     private:
         uint8_t _message[16];
@@ -119,9 +120,9 @@ class CCDLibrary
         bool _calculateTxChecksum;
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
-        uint8_t  _ignoreList[256];
-        volatile onMessageReceivedHandler _msgHandler;
-        volatile onErrorHandler _errHandler;
+        uint8_t _ignoreList[256];
+        volatile onCCDMessageReceivedHandler _msgHandler;
+        volatile onCCDErrorHandler _errHandler;
         void serialInit();
         void transmitDelayTimerInit();
         void transmitDelayTimerStart();

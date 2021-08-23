@@ -77,8 +77,8 @@ void setup()
     pinMode(TBEN, OUTPUT);
     digitalWrite(TBEN, LOW); // LOW: enable, HIGH: disable CCD-bus termination and bias
 
-    CCD.onMessageReceived(CCDMessageReceived); // callback function when CCD-bus message is received
-    CCD.onError(CCDHandleError); // callback function when error occurs
+    CCD.onMessageReceived(CCDMessageReceived); // subscribe to the message received event and call this function when a CCD-bus message is received
+    CCD.onError(CCDHandleError); // subscribe to the error event and call this function when an error occurs
     //CCD.begin(); // CDP68HC68S1
     CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
 }

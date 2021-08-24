@@ -82,7 +82,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         // Detach active byte interrupt.
         pinMode(IDLE_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, CHANGE);
-        detachInterrupt(digitalPinToInterrupt(CTRL_PIN));
+        //detachInterrupt(digitalPinToInterrupt(CTRL_PIN));
 
         // Enable 1 MHz clock generator on Timer 1 and disable bus-idle timer at the same time.
         clockGeneratorInit();
@@ -94,7 +94,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         // Detach bus-idle interrupt. The active byte interrupt takes over the role of detecting bus-idle condition.
         pinMode(CTRL_PIN, INPUT_PULLUP);
         attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
-        detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
+        //detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
 
         // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
         busIdleTimerInit();

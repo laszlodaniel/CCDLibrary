@@ -120,7 +120,7 @@ class CCDLibrary
         bool _calculateTxChecksum;
         uint16_t _calculatedOCR1AValue;
         uint16_t _calculatedOCR3AValue;
-        uint8_t _ignoreList[256];
+        uint8_t _ignoreList[32];
         volatile onCCDMessageReceivedHandler _msgHandler;
         volatile onCCDErrorHandler _errHandler;
         void serialInit();
@@ -132,6 +132,7 @@ class CCDLibrary
         void busIdleTimerStart();
         void busIdleTimerStop();
         void processMessage();
+        uint8_t* getBit(uint8_t id, uint8_t* pBit);
         void handleMessagesInternal(uint8_t* _message, uint8_t _messageLength);
         void handleErrorsInternal(CCD_Operations _op, CCD_Errors _err);
 };

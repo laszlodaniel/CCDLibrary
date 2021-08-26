@@ -473,43 +473,15 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     } */
 }
 
-void CCDLibrary::listenAll()
-{
-    memset(_ignoreList, 0, sizeof(_ignoreList));
-}
-
-void CCDLibrary::listen(uint8_t* ids)
-{
-    ignoreAll();
-
-    while (*ids)
-    {
-        _ignoreList[*ids] = 0; // clear ignore flag
-        ids++;
-    }
-}
-
-void CCDLibrary::ignoreAll()
-{
-    memset(_ignoreList, 1, sizeof(_ignoreList));
-}
-
-void CCDLibrary::ignore(uint8_t* ids)
-{
-    listenAll();
-
-    while (*ids)
-    {
-        _ignoreList[*ids] = 1; // set ignore flag
-        ids++;
-    }
-}
-
 void CCDLibrary::processMessage()
 {
     if (_serialRxBufferPos > 0)
     {
-        if (_ignoreList[_serialRxBuffer[0]] == 0)
+        uint8_t *pByte, bit;
+
+        pByte = getBit(_serialRxBuffer[0], &bit); // check if ID-byte is on ignore list
+
+        if (pByte && (*pByte & (1 << bit)) == 0) // ID-byte is not on ignore list
         {
             if (_verifyRxChecksum && (_serialRxBufferPos > 1)) // verify checksum
             {
@@ -522,12 +494,10 @@ void CCDLibrary::processMessage()
                     for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
 
                     _messageLength = _serialRxBufferPos;
-                    _serialRxBufferPos = 0;
                     handleMessagesInternal(_message, _messageLength);
                 }
                 else
                 {
-                    _serialRxBufferPos = 0;
                     handleErrorsInternal(CCD_Read, CCD_ERR_CHECKSUM);
                 }
             }
@@ -536,15 +506,68 @@ void CCDLibrary::processMessage()
                 for (uint8_t i = 0; i < _serialRxBufferPos; i++) _message[i] = _serialRxBuffer[i];
 
                 _messageLength = _serialRxBufferPos;
-                _serialRxBufferPos = 0;
                 handleMessagesInternal(_message, _messageLength);
             }
         }
-        else
-        {
-            _serialRxBufferPos = 0;
-        }
+
+        _serialRxBufferPos = 0;
     }
+}
+
+void CCDLibrary::listenAll()
+{
+    memset(_ignoreList, 0, sizeof(_ignoreList));
+}
+
+void CCDLibrary::listen(uint8_t* ids)
+{
+    uint8_t *pByte, bit;
+
+    while (*ids)
+    {
+        pByte = getBit(*ids, &bit);
+
+        if (pByte)
+        {
+            *pByte &= ~(1 << bit);
+        }
+
+        ids++;
+    }
+}
+
+void CCDLibrary::ignoreAll()
+{
+    memset(_ignoreList, 0xFF, sizeof(_ignoreList));
+}
+
+void CCDLibrary::ignore(uint8_t* ids)
+{
+    uint8_t *pByte, bit;
+
+    while (*ids)
+    {
+        pByte = getBit(*ids, &bit);
+
+        if (pByte)
+        {
+            *pByte |= 1 << bit;
+        }
+
+        ids++;
+    }
+}
+
+uint8_t* CCDLibrary::getBit(uint8_t id, uint8_t *pBit)
+{
+    if (!id)
+    {
+        *pBit = 0xFF;
+        return NULL;
+    }
+
+    *pBit = id % 8;
+    return &(_ignoreList[id / 8]);
 }
 
 void CCDLibrary::handleMessagesInternal(uint8_t* _message, uint8_t _messageLength)

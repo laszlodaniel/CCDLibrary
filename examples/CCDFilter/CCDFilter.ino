@@ -85,10 +85,12 @@ void setup()
     CCD.onError(CCDHandleError); // subscribe to the error event and call this function when an error occurs
     //CCD.begin(); // CDP68HC68S1
     CCD.begin(CCD_DEFAULT_SPEED, CUSTOM_TRANSCEIVER, IDLE_BITS_10, ENABLE_RX_CHECKSUM, ENABLE_TX_CHECKSUM);
+
+    CCD.ignoreAll(); // don't let any message through
     CCD.listen(messageFilter); // display selected messages only
-    //CCD.ignore(messageFilter); // ignore selected messages
+
     //CCD.listenAll(); // disable message filtering
-    //CCD.ignoreAll(); // don't let any message through
+    //CCD.ignore(messageFilter); // ignore selected messages
 }
 
 void loop()

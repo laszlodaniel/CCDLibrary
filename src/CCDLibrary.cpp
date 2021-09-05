@@ -349,7 +349,7 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
     if (timeout) return 2;
 
     // Insert 256 microseconds delay here. Since loading the UART TX buffer takes some time let's wait a bit less.
-    _delay_us(64.0);
+    //_delay_us(64.0);
 
     // Enable UDRE interrupt to begin message transmission.
     UCSR1B |= (1 << UDRIE1);

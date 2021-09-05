@@ -132,7 +132,7 @@ class CCDLibrary
         void busIdleTimerStart();
         void busIdleTimerStop();
         void processMessage();
-        uint8_t* getBit(uint8_t id, uint8_t* pBit);
+        uint8_t* getBit(uint8_t _id, uint8_t* _pBit);
         void handleMessagesInternal(uint8_t* _message, uint8_t _messageLength);
         void handleErrorsInternal(CCD_Operations _op, CCD_Errors _err);
 };

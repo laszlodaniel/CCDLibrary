@@ -32,12 +32,12 @@ CCDLibrary::~CCDLibrary()
     // Empty class destructor.
 }
 
-static void isrIdle()
+static void isrCCDIdle()
 {
     CCD.busIdleInterruptHandler();
 }
 
-static void isrActiveByte()
+static void isrCCDActiveByte()
 {
     CCD.activeByteInterruptHandler();
 }
@@ -81,7 +81,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         // Setup external interrupt for bus-idle detection on the IDLE pin.
         // Detach active byte interrupt.
         pinMode(IDLE_PIN, INPUT_PULLUP);
-        attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrIdle, CHANGE);
+        attachInterrupt(digitalPinToInterrupt(IDLE_PIN), isrCCDIdle, CHANGE);
         //detachInterrupt(digitalPinToInterrupt(CTRL_PIN));
 
         // Enable 1 MHz clock generator on Timer 1 and disable bus-idle timer at the same time.
@@ -93,7 +93,7 @@ void CCDLibrary::begin(float baudrate, bool dedicatedTransceiver, uint8_t busIdl
         // Setup external interrupt for active byte detection on the "CTRL" pin. RX1 pin is spliced and routed here.
         // Detach bus-idle interrupt. The active byte interrupt takes over the role of detecting bus-idle condition.
         pinMode(CTRL_PIN, INPUT_PULLUP);
-        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+        attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrCCDActiveByte, FALLING);
         //detachInterrupt(digitalPinToInterrupt(IDLE_PIN));
 
         // Enable bus-idle timer on Timer 1 and disable 1 MHz clock generator at the same time.
@@ -152,7 +152,7 @@ void CCDLibrary::receiveByte()
     _lastSerialError = lastRxError;
 
     // Re-enable active byte interrupt.
-    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+    if (!_dedicatedTransceiver) attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrCCDActiveByte, FALLING);
 }
 
 ISR(USART1_UDRE_vect)
@@ -308,7 +308,7 @@ void CCDLibrary::timer1Handler()
     busIdleTimerStop(); // stop bus idle timer
     _busIdle = true; // set flag
     transmitDelayTimerStart(); // start counting 256 microseconds for the next message transmission opportunity
-    attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+    attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrCCDActiveByte, FALLING);
     processMessage(); // process received message, if any
 }
 
@@ -452,7 +452,7 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
             _serialTxBufferPos = 1;
 
             // Re-enable active byte interrupt.
-            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrCCDActiveByte, FALLING);
 
             // Enable UDRE interrupt to continue automatic message transmission.
             UCSR1B |= (1 << UDRIE1);
@@ -466,7 +466,7 @@ uint8_t CCDLibrary::write(uint8_t* buffer, uint8_t bufferLength)
             _serialTxLength = 0;
 
             // Re-enable active byte interrupt.
-            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrActiveByte, FALLING);
+            attachInterrupt(digitalPinToInterrupt(CTRL_PIN), isrCCDActiveByte, FALLING);
 
             return 3;
         }
@@ -558,16 +558,16 @@ void CCDLibrary::ignore(uint8_t* ids)
     }
 }
 
-uint8_t* CCDLibrary::getBit(uint8_t id, uint8_t *pBit)
+uint8_t* CCDLibrary::getBit(uint8_t _id, uint8_t* _pBit)
 {
-    if (!id)
+    if (!_id)
     {
-        *pBit = 0xFF;
+        *_pBit = 0xFF;
         return NULL;
     }
 
-    *pBit = id % 8;
-    return &(_ignoreList[id / 8]);
+    *_pBit = _id % 8;
+    return &(_ignoreList[_id / 8]);
 }
 
 void CCDLibrary::handleMessagesInternal(uint8_t* _message, uint8_t _messageLength)
